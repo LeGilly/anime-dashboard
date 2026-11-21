@@ -1,5 +1,8 @@
 # Changelog
 
+## 2.5.1 · 2026-11-21
+- Privacy notice: links back to the dashboard (top and bottom); mentions the shared colour theme cookie
+
 ## 2.5.0 · 2026-11-21
 - Navigation bar at the top: home button to the hub, Games and Tools menus to switch project, and the theme button (replaces the back links)
 
