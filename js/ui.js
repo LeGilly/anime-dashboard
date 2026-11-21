@@ -224,8 +224,7 @@
       <span class="m">${esc(meta)}</span>
       <span class="m s"><i class="dot st-${e.status}"></i>${esc(status)}${prog}</span>
     </button>`;
-    // Quick +1 for what you're watching (your own list, signed in).
-    return canEdit() && e.status === "current" ? `<div class="tw">${tileHtml}${plusBtn(e)}</div>` : tileHtml;
+    return tileHtml;
   }
 
   function row(e) {
@@ -1274,10 +1273,13 @@
       failed: "Sign-in didn't work. Try again in a moment.",
       expired: "The sign-in took too long. Try again.",
     };
-    if (signin && outcomes[signin]) toast(outcomes[signin], signin === "ok" ? "" : "warn");
-    else if (A.unconfirmed) toast("Couldn't reach MyAnimeList to confirm your sign-in. Showing your saved list.", "warn");
     const wanted = p.get("user");
-    if (A.me && (signin === "ok" || !wanted || wanted.toLowerCase() === A.me.name.toLowerCase())) {
+    const mineWanted = A.me && (signin === "ok" || (wanted && wanted.toLowerCase() === A.me.name.toLowerCase()));
+    if (signin && outcomes[signin]) toast(outcomes[signin], signin === "ok" ? "" : "warn");
+    else if (A.unconfirmed) toast(`Couldn't reach MyAnimeList to confirm your sign-in.${mineWanted ? " Showing your saved list." : ""}`, "warn");
+    // The plain address always opens the start page; a list only opens when the address names one
+    // (?user=…), or right after signing in.
+    if (mineWanted) {
       if (!p.get("tab")) S.tab = "library";
       return openMine();
     }
@@ -1295,9 +1297,8 @@
         $("loader").hidden = true;
         loadUser(wanted);
       }
-    } else if (saved && (saved.anime || saved.manga)) {
-      show(saved);
     } else {
+      if (saved && saved.source === "live" && saved.user) $("user").value = saved.user;
       setStatus("See your MyAnimeList in a cleaner way.");
     }
   }

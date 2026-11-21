@@ -407,13 +407,12 @@ footer a { color: inherit; }
 .acct .link { padding: 0; font-size: inherit; }
 
 /* Quick +1 on covers and progress cards (kept outside the card's own button). */
-.tw, .pw, .rw { position: relative; display: flex; min-width: 0; }
-.tw > .tile, .pw > .pcard, .rw > .rcard { flex: 1; min-width: 0; }
+.pw, .rw { position: relative; display: flex; min-width: 0; }
+.pw > .pcard, .rw > .rcard { flex: 1; min-width: 0; }
 .plus1 {
   position: absolute; padding: 4px 10px; font-size: 0.8rem; font-weight: 700; border-radius: 999px;
   background: var(--accent); color: #fff; box-shadow: 0 2px 8px rgba(0, 0, 0, .25);
 }
-.tw .plus1 { top: 6px; left: 6px; }
 .pw .plus1 { right: 10px; top: 50%; transform: translateY(-50%); }
 .pw > .pcard { padding-right: 60px; }
 .rw .addplan { position: absolute; right: 10px; bottom: 10px; }
