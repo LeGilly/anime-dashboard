@@ -120,8 +120,8 @@
     if (onProgress) onProgress(done, ids.length);
     let error = null;
     try {
-      for (let i = 0; i < todo.length; i += 40) {
-        const chunk = todo.slice(i, i + 40);
+      for (let i = 0; i < todo.length; i += 25) {
+        const chunk = todo.slice(i, i + 25);
         const res = await MALD.relay("/links", { type: kind, ids: chunk.join(",") });
         for (const it of res.items) {
           const v = it.missing ? { id: it.id, recs: [], related: [] } : it;
@@ -150,8 +150,8 @@
     }
     let error = null;
     try {
-      for (let i = 0; i < todo.length; i += 40) {
-        const res = await MALD.relay("/details", { type: kind, ids: todo.slice(i, i + 40).join(",") });
+      for (let i = 0; i < todo.length; i += 25) {
+        const res = await MALD.relay("/details", { type: kind, ids: todo.slice(i, i + 25).join(",") });
         for (const node of res.items) {
           const d = node.missing ? { missing: true } : MALD.detailsFromNode(node, kind);
           cache[node.id] = [now, d];

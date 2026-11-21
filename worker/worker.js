@@ -8,8 +8,8 @@
 //
 // Endpoints (GET only):
 //   /list?user=NAME&type=anime|manga      -> { user, type, items: [ {node, list_status}, ... ] }
-//   /details?type=anime|manga&ids=1,2,3   -> { type, items: [ node, ... ] }   (max 40 ids)
-//   /links?type=anime|manga&ids=1,2,3     -> { type, items: [ { id, recs, related }, ... ] }   (max 40 ids)
+//   /details?type=anime|manga&ids=1,2,3   -> { type, items: [ node, ... ] }   (max 25 ids)
+//   /links?type=anime|manga&ids=1,2,3     -> { type, items: [ { id, recs, related }, ... ] }   (max 25 ids)
 //        recs:    [[id, title, picture, number of MAL users recommending it], ...]
 //        related: [[id, title, picture, relation (sequel, side_story, ...)], ...]
 
@@ -23,9 +23,9 @@ const ALLOWED_ORIGINS = [
 ];
 
 const MAL = "https://api.myanimelist.net/v2";
-const MAX_IDS = 40;            // Cloudflare's free plan allows 50 outgoing requests per call
-// Title details (covers, genres, studios) are cached for a week. Users' lists are never stored.
-const DETAIL_CACHE_S = 7 * 24 * 3600;
+const MAX_IDS = 25;            // Cloudflare's free plan allows 50 outgoing requests per call; stay well under
+// Nothing is stored here: the dashboard keeps title details in the visitor's browser for a week,
+// and users' lists are never stored.
 
 const COMMON = "id,title,main_picture,alternative_titles,start_date,mean,media_type,status,genres,nsfw,num_list_users";
 // List fields are named explicitly: MAL leaves out the rewatch/reread count otherwise.
@@ -65,8 +65,8 @@ export default {
         }
         const unique = [...new Set(ids)];
         const result = url.pathname === "/details"
-          ? await getCached(env, ctx, type, unique, "details", FIELDS[type], (node) => node)
-          : await getCached(env, ctx, type, unique, "links", `recommendations,related_${type}`, slimLinks(type));
+          ? await getMany(env, type, unique, FIELDS[type], (node) => node)
+          : await getMany(env, type, unique, `recommendations,related_${type}`, slimLinks(type));
         return json(result, 200, cors);
       }
       return json({ error: "Unknown endpoint." }, 404, cors);
@@ -100,29 +100,19 @@ function slimLinks(type) {
   });
 }
 
-// Title data (not user data) is cached for a week, per title and per kind of request.
-async function getCached(env, ctx, type, ids, kind, fields, shape) {
-  const cache = caches.default;
+// Looks up several titles, a few at a time so MAL isn't hit with them all at once.
+async function getMany(env, type, ids, fields, shape) {
   const items = [];
-  // Look up a few at a time so MAL isn't hit with 40 requests at once.
-  for (let i = 0; i < ids.length; i += 6) {
-    const batch = ids.slice(i, i + 6);
-    const results = await Promise.all(batch.map(async (id) => {
-      const key = new Request(`https://mal-cache.internal/${kind}/${type}/${id}`);
-      const hit = await cache.match(key);
-      if (hit) return hit.json();
+  for (let i = 0; i < ids.length; i += 5) {
+    const batch = ids.slice(i, i + 5);
+    items.push(...await Promise.all(batch.map(async (id) => {
       try {
-        const node = shape(await mal(env, `${MAL}/${type}/${id}?nsfw=true&fields=${fields}`));
-        ctx.waitUntil(cache.put(key, new Response(JSON.stringify(node), {
-          headers: { "Cache-Control": `max-age=${DETAIL_CACHE_S}` },
-        })));
-        return node;
+        return shape(await mal(env, `${MAL}/${type}/${id}?nsfw=true&fields=${fields}`));
       } catch (err) {
         if (err.status === 404) return { id: Number(id), missing: true }; // removed from MAL
         throw err;
       }
-    }));
-    items.push(...results);
+    })));
   }
   return { type, items };
 }

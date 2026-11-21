@@ -223,8 +223,8 @@ MALD.enrich = async function (entries, kind, onProgress) {
   const ids = [...byId.keys()];
   let done = 0;
   try {
-    for (let i = 0; i < ids.length; i += 40) {
-      const chunk = ids.slice(i, i + 40);
+    for (let i = 0; i < ids.length; i += 25) {
+      const chunk = ids.slice(i, i + 25);
       const res = await relay("/details", { type: kind, ids: chunk.join(",") });
       for (const node of res.items) {
         const d = node.missing ? { missing: true } : detailsFromNode(node, kind);
