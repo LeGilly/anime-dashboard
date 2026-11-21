@@ -110,14 +110,27 @@ MALD.relayReady = () => !!(window.MALD_CONFIG && window.MALD_CONFIG.relay);
    Priority decides who goes first: 0 = something you did (load a list, open your list, edit), which never waits
    for the budget; 1 = Next up while you wait for it; 2 = background checks.
    A group (such as "next:anime") can be paused: its requests stay in line until it's resumed. */
-const net = { BURST: 20, RATE: 1000, queue: [], paused: new Set(), tokens: 20, at: Date.now(), busy: false, seq: 0, wake: null };
+// Tuned from a real slowdown: MAL stopped answering after ~80 requests in a minute (a burst of 25, then 1 per second
+// after minutes at that rate). So: at most 10 at once, then one every 1.5 s (about 40 a minute), slower after a slowdown.
+const net = { BURST: 10, RATE: 1500, queue: [], paused: new Set(), tokens: 10, at: Date.now(), busy: false, seq: 0, wake: null };
+const BUDGET_KEY = "mald:budget"; // shared by reloads and other tabs, so none of them starts with a fresh burst
 const LOG_KEY = "mald:netlog";
 const LOG_MAX = 400;
 
+// After a slowdown the whole line slows down too (the pace is set in recs.js).
+const rate = () => Math.max(net.RATE, (MALD.pace && MALD.pace.get().pause) || 0);
 function refill() {
   const now = Date.now();
-  net.tokens = Math.min(net.BURST, net.tokens + (now - net.at) / net.RATE);
+  try {
+    const b = JSON.parse(localStorage.getItem(BUDGET_KEY));
+    if (b && b.at > net.at && b.at <= now) { net.tokens = b.tokens; net.at = b.at; } // another tab spent some
+  } catch { /* ignore */ }
+  net.tokens = Math.min(net.BURST, net.tokens + (now - net.at) / rate());
   net.at = now;
+}
+function spend(cost) {
+  net.tokens -= cost;
+  try { localStorage.setItem(BUDGET_KEY, JSON.stringify({ tokens: net.tokens, at: net.at })); } catch { /* ignore */ }
 }
 
 async function pump() {
@@ -133,12 +146,12 @@ async function pump() {
       const need = Math.min(job.cost, net.BURST);
       if (job.priority > 0 && net.tokens < need) {
         // Wait for the budget, but wake early if something more urgent arrives (or a group is paused/resumed).
-        await new Promise((r) => { net.wake = r; setTimeout(r, Math.ceil((need - net.tokens) * net.RATE)); });
+        await new Promise((r) => { net.wake = r; setTimeout(r, Math.ceil((need - net.tokens) * rate())); });
         net.wake = null;
         continue;
       }
       net.queue.splice(net.queue.indexOf(job), 1);
-      net.tokens -= job.cost;
+      spend(job.cost);
       const t0 = Date.now();
       try {
         job.resolve(await job.work());
@@ -168,7 +181,7 @@ MALD.netLogText = function () {
     [new Date(t).toISOString().slice(11, 19), what, cost, pr, waited, ms, result].join("\t"));
   const pace = MALD.readCache("mald:pace");
   return [`Anime Dashboard request log · ${new Date().toISOString()} · ${navigator.userAgent}`,
-    `budget ${net.BURST} at once, then 1 every ${net.RATE} ms · background pause ${pace.pause || MALD.REQ_PAUSE} ms per title`,
+    `budget ${net.BURST} at once, then 1 every ${rate()} ms · background pause ${pace.pause || MALD.REQ_PAUSE} ms per title`,
     "time (UTC)\twhat\tMAL requests\tpriority\twaited ms\ttook ms\tresult", ...rows].join("\n");
 };
 
@@ -384,7 +397,7 @@ MALD.loadMine = function () {
 // Removes the saved list and all cached title details from this browser.
 MALD.forget = function () {
   try {
-    ["mald:last", "mald:mine", "mald:me", "mald:details:anime", "mald:details:manga", "mald:links:anime", "mald:links:manga", "mald:pace", "mald:fullsweep", "mald:netlog"].forEach((k) => localStorage.removeItem(k));
+    ["mald:last", "mald:mine", "mald:me", "mald:details:anime", "mald:details:manga", "mald:links:anime", "mald:links:manga", "mald:pace", "mald:fullsweep", "mald:netlog", "mald:budget"].forEach((k) => localStorage.removeItem(k));
   } catch { /* ignore */ }
 };
 MALD.pruneDetails = function () {

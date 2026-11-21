@@ -14,7 +14,7 @@
     alternative_version: "Another version of", parent_story: "Main story of", full_story: "Full story of",
   };
   const DONE = ["completed", "current", "on_hold", "dropped"]; // already started: never suggested
-  MALD.REQ_PAUSE = 1000;     // background pace: about one request to MyAnimeList per second (MAL handled this fine in testing)
+  MALD.REQ_PAUSE = 1500;     // background pace: one request to MyAnimeList every 1.5 seconds (1 per second, sustained, was too much)
   MALD.MAX_PAUSE = 12000;    // slowest pace after repeated slowdowns (one request every 12 seconds)
   MALD.MAX_AUTO = 300;       // titles checked for sequels automatically (beyond favorites)
   MALD.FIRST_DETAILS = 40;   // suggested titles looked up before showing results; the rest follow in the background
