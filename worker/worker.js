@@ -94,9 +94,12 @@ export default {
         const h = { ...cors, ...extra, "Cache-Control": "no-store" };
         const authed = (u, init = {}) => mal(env, u, { ...init, token: session.access });
 
+        // Who you are comes from the cookie (saved at sign-in), so checking it never needs MAL.
         if (url.pathname === "/me" && request.method === "GET") {
-          const me = await authed(`${MAL}/users/@me?fields=id,name,picture`);
-          return json({ id: me.id, name: me.name, picture: me.picture || "" }, 200, h);
+          if (session.me) return json(session.me, 200, h);
+          const me = await fetchMe(env, session.access);
+          const kept = { ...session.data, m: me };
+          return json(me, 200, { ...h, "Set-Cookie": cookie("mald_sess", await seal(env, kept), SESSION_DAYS * 86400, "Strict") });
         }
         const type = url.searchParams.get("type");
         if (type !== "anime" && type !== "manga") return json({ error: "type must be anime or manga." }, 400, h);
@@ -251,7 +254,10 @@ async function callback(request, env, url) {
   } catch {
     return back(pending.r, "failed");
   }
-  const session = await seal(env, sessionFrom(tokens));
+  // Remember who signed in, so later checks don't need to ask MAL.
+  let me = null;
+  try { me = await fetchMe(env, tokens.access_token); } catch { /* fetched later if needed */ }
+  const session = await seal(env, { ...sessionFrom(tokens), m: me });
   return new Response(null, { status: 302, headers: [
     ["Location", `${pending.r}?signin=ok`], ["Set-Cookie", clearPending],
     ["Set-Cookie", cookie("mald_sess", session, SESSION_DAYS * 86400, "Strict")],
@@ -262,13 +268,17 @@ async function callback(request, env, url) {
 async function getSession(request, env) {
   const s = await unseal(env, readCookie(request, "mald_sess"));
   if (!s || !s.a) return null;
-  if (Date.now() < s.e - 60000) return { access: s.a };
+  if (Date.now() < s.e - 60000) return { access: s.a, me: s.m || null, data: s };
+  let tokens;
   try {
-    const fresh = sessionFrom(await tokenRequest(env, { grant_type: "refresh_token", refresh_token: s.r }));
-    return { access: fresh.a, setCookie: cookie("mald_sess", await seal(env, fresh), SESSION_DAYS * 86400, "Strict") };
-  } catch {
-    return null;
+    tokens = await tokenRequest(env, { grant_type: "refresh_token", refresh_token: s.r });
+  } catch (err) {
+    // MAL said the sign-in is no longer valid: signed out. Anything else (busy, slow): keep it and try later.
+    if (err.status === 400 || err.status === 401) return null;
+    return { access: s.a, me: s.m || null, data: s };
   }
+  const fresh = { ...sessionFrom(tokens), m: s.m || null };
+  return { access: fresh.a, me: fresh.m, data: fresh, setCookie: cookie("mald_sess", await seal(env, fresh), SESSION_DAYS * 86400, "Strict") };
 }
 
 async function tokenRequest(env, params) {
@@ -278,8 +288,13 @@ async function tokenRequest(env, params) {
     body: new URLSearchParams({ client_id: env.MAL_CLIENT_ID, client_secret: env.MAL_CLIENT_SECRET, ...params }),
     signal: AbortSignal.timeout(15000),
   });
-  if (!res.ok) throw new Error(`MyAnimeList refused the sign-in (${res.status}).`);
+  if (!res.ok) throw Object.assign(new Error(`MyAnimeList refused the sign-in (${res.status}).`), { status: res.status });
   return res.json();
+}
+
+async function fetchMe(env, token) {
+  const me = await mal(env, `${MAL}/users/@me?fields=id,name,picture`, { token });
+  return { id: me.id, name: me.name, picture: me.picture || "" };
 }
 
 const sessionFrom = (t) => ({ a: t.access_token, r: t.refresh_token, e: Date.now() + (t.expires_in || 3600) * 1000 });

@@ -48,6 +48,7 @@
     try { data = await res.json(); } catch { /* empty */ }
     if (res.status === 401) {
       A.me = null;
+      forgetMe();
       throw Object.assign(new Error((data && data.error) || "Your sign-in expired. Sign in again."), { status: 401 });
     }
     if (!res.ok) throw Object.assign(new Error((data && data.error) || `The relay answered with error ${res.status}.`), { status: res.status });
@@ -56,9 +57,22 @@
 
   /* ---------- signing in and out ---------- */
 
+  // Signed in? Only a clear "not signed in" from the relay counts as signed out. If it can't be checked
+  // right now (MyAnimeList busy, connection trouble), the last known sign-in is kept and A.unconfirmed is set.
   A.check = async function () {
     if (!A.available()) return null;
-    try { A.me = await call("GET", "/me"); } catch { A.me = null; }
+    A.unconfirmed = false;
+    try {
+      A.me = await call("GET", "/me");
+      MALD.writeCache("mald:me", A.me);
+    } catch (err) {
+      if (err.status === 401) { A.me = null; forgetMe(); }
+      else {
+        const known = MALD.readCache("mald:me");
+        A.me = known && known.name ? known : null;
+        A.unconfirmed = !!A.me;
+      }
+    }
     if (A.me) {
       const saved = MALD.loadMine();
       A.mine = saved && saved.user.toLowerCase() === A.me.name.toLowerCase() ? saved : null;
@@ -75,7 +89,9 @@
     A.me = null;
     A.mine = null;
     MALD.saveMine(null);
+    forgetMe();
   };
+  function forgetMe() { try { localStorage.removeItem("mald:me"); } catch { /* ignore */ } }
 
   // Your own list, private entries included.
   A.loadMine = async function () {

@@ -1275,6 +1275,7 @@
       expired: "The sign-in took too long. Try again.",
     };
     if (signin && outcomes[signin]) toast(outcomes[signin], signin === "ok" ? "" : "warn");
+    else if (A.unconfirmed) toast("Couldn't reach MyAnimeList to confirm your sign-in. Showing your saved list.", "warn");
     const wanted = p.get("user");
     if (A.me && (signin === "ok" || !wanted || wanted.toLowerCase() === A.me.name.toLowerCase())) {
       if (!p.get("tab")) S.tab = "library";
