@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- Security: run only this site's own code and styles. Images may also come from MyAnimeList's
+       picture server, and data only from the relay (a Cloudflare Worker, see README.md). -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' https://cdn.myanimelist.net data:; connect-src https://anime-dashboard.legilly.workers.dev; base-uri 'none'; form-action 'none'">
+  <meta name="referrer" content="no-referrer">
+  <title>Anime Dashboard</title>
+  <meta name="description" content="A cleaner way to browse your MyAnimeList anime and manga lists, with progress and stats.">
+  <meta name="theme-color" content="#128afa">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23128afa'/%3E%3Ctext x='16' y='23' font-family='Segoe UI,Arial,sans-serif' font-size='19' font-weight='700' fill='white' text-anchor='middle'%3EA%3C/text%3E%3C/svg%3E">
+  <link rel="stylesheet" href="style.css?v=1">
+</head>
+<body>
+  <main class="wrap">
+    <nav class="back"><a href="/">&larr; All projects</a></nav>
+    <header>
+      <h1>Anime <span>Dashboard</span></h1>
+      <p class="sub" id="status">Loading…</p>
+    </header>
+
+    <section class="card load" id="loader">
+      <form id="userForm" autocomplete="off">
+        <label for="user">MyAnimeList username</label>
+        <div class="inline">
+          <input id="user" type="text" placeholder="e.g. LeGilly" maxlength="16" spellcheck="false" autocapitalize="off">
+          <button type="submit" id="loadBtn">Load</button>
+        </div>
+        <p class="hint" id="liveHint">Works for public lists. Loads both anime and manga.</p>
+      </form>
+      <div class="or"><span>or</span></div>
+      <div class="upload">
+        <p><strong>Upload your MAL export</strong></p>
+        <p class="hint">
+          Works for private lists too. Get the file from
+          <a href="https://myanimelist.net/panel.php?go=export" target="_blank" rel="noopener">MAL's export page</a>
+          (.xml or .xml.gz). You can add the anime and manga files together, or drop them here.
+        </p>
+        <label class="btn ghost filebtn">Choose files<input type="file" id="file" accept=".xml,.gz" multiple hidden></label>
+      </div>
+    </section>
+
+    <section id="app" hidden>
+      <div class="bar">
+        <div class="who"><strong id="who"></strong><small id="whoMeta"></small></div>
+        <div class="seg" id="kindSeg" aria-label="List">
+          <button data-kind="anime" aria-pressed="true">Anime <small></small></button>
+          <button data-kind="manga" aria-pressed="false">Manga <small></small></button>
+        </div>
+        <div class="actions">
+          <button class="ghost" id="refreshBtn">Refresh</button>
+          <button class="ghost" id="changeBtn">Change list</button>
+          <button class="ghost" id="settingsBtn" aria-expanded="false" aria-controls="settings">Settings</button>
+        </div>
+      </div>
+      <div class="settings" id="settings" hidden>
+        <label><input type="checkbox" id="prefEn"> Show English titles when available</label>
+        <label><input type="checkbox" id="prefBlur"> Blur 18+ covers</label>
+        <button class="link" id="forgetBtn" type="button">Forget this list</button>
+      </div>
+      <nav class="tabs" id="tabs" role="tablist">
+        <button role="tab" data-tab="library" aria-selected="true">Library</button>
+        <button role="tab" data-tab="progress" aria-selected="false">Progress</button>
+        <button role="tab" data-tab="stats" aria-selected="false">Stats</button>
+      </nav>
+      <div id="view"></div>
+    </section>
+
+    <footer>
+      Data and pictures from <a href="https://myanimelist.net" target="_blank" rel="noopener">MyAnimeList</a>.
+      Fan-made, not affiliated with MyAnimeList. Your list is kept only in this browser, for up to 30 days.
+      <br><span class="version" title="Site version">v1</span>
+    </footer>
+  </main>
+
+  <dialog id="detail" aria-label="Title details"></dialog>
+  <div id="tip" role="tooltip" hidden></div>
+
+  <script src="js/config.js?v=1"></script>
+  <script src="js/data.js?v=1"></script>
+  <script src="js/stats.js?v=1"></script>
+  <script src="js/ui.js?v=1"></script>
+</body>
+</html>
