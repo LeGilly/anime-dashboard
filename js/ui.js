@@ -865,9 +865,9 @@
     $("detail").innerHTML = `
       <div class="d-wrap">
         <button class="d-close ghost" data-act="close" aria-label="Close">✕</button>
-        ${back ? `<button type="button" class="link d-back" data-act="relback">&larr; Back to ${esc(titleOf(back))}</button>` : ""}
         ${img ? `<img class="d-cover${hidden18(e) ? " nsfw" : ""}" src="${esc(img)}" alt="" referrerpolicy="no-referrer">` : ""}
         <div class="d-body">
+          ${back ? `<button type="button" class="link d-back" data-act="relback">&larr; Back to ${esc(titleOf(back))}</button>` : ""}
           <h2>${esc(titleOf(e))}</h2>
           ${e.titleEn && e.titleEn !== titleOf(e) ? `<p class="sub">${esc(e.titleEn)}</p>` : e.titleEn && e.title !== titleOf(e) ? `<p class="sub">${esc(e.title)}</p>` : ""}
           ${e.genres.length ? `<ul class="tags">${e.genres.map((g) => `<li>${esc(g)}</li>`).join("")}</ul>` : ""}
@@ -889,6 +889,7 @@
     spin_off: "Spin-off", alternative_setting: "Alternative setting", alternative_version: "Alternative version",
     summary: "Summary", adaptation: "Adaptation", character: "Same characters", other: "Other",
   };
+  const REL_MAIN = ["prequel", "sequel", "parent_story", "side_story"]; // shown straight away; the rest behind a button
   const REL_MAX = 300; // titles whose related list is kept
   const relLoading = new Map();
   const relKey = (kind) => `mald:related:${kind}`;
@@ -927,7 +928,11 @@
   function relatedHtml(e, rel) {
     if (!rel.length) return `<div id="dRelated"></div>`;
     const anime = e.kind === "anime";
-    const rows = rel.slice().sort((a, b) => (REL_ORDER.indexOf(a[3]) + 99) % 99 - (REL_ORDER.indexOf(b[3]) + 99) % 99).map(([id, title, pic, how]) => {
+    const sorted = rel.slice().sort((a, b) => (REL_ORDER.indexOf(a[3]) + 99) % 99 - (REL_ORDER.indexOf(b[3]) + 99) % 99);
+    const main = sorted.filter((r) => REL_MAIN.includes(r[3]));
+    const more = sorted.length - main.length;
+    const all = S.relAll === e.id || !main.length && more <= 2; // a couple of extras alone aren't worth a click
+    const rows = (all ? sorted : main).map(([id, title, pic, how]) => {
       const known = findEntry(id) || (A.me && A.myEntry(e.kind, id));
       const name = known ? titleOf(known) : title;
       const blur = known && hidden18(known);
@@ -945,7 +950,10 @@
         ${side}
       </li>`;
     }).join("");
-    return `<div id="dRelated"><h3>Related</h3><ul class="rels">${rows}</ul></div>`;
+    const btn = !more ? ""
+      : all ? (main.length ? `<button type="button" class="link relmore" data-act="relless">Show fewer</button>` : "")
+      : `<button type="button" class="link relmore" data-act="relmore">Show ${more} more (spin-offs, other versions…)</button>`;
+    return `<div id="dRelated"><h3>Related</h3>${rows ? `<ul class="rels">${rows}</ul>` : ""}${btn}</div>`;
   }
   // A related title as a full entry: from a list if it's there, otherwise its details (saved, or one request).
   async function relatedEntry(id, kind) {
@@ -1365,6 +1373,12 @@
       } else if (b.dataset.add) addToMine(b.dataset.add);
       else if (b.dataset.rel) openRelated(b.dataset.rel);
       else if (b.dataset.act === "relback") relatedBack();
+      else if (b.dataset.act === "relmore" || b.dataset.act === "relless") {
+        const e = findEntry(S.detailId) || (A.me && A.myEntry(S.kind, S.detailId));
+        S.relAll = b.dataset.act === "relmore" ? S.detailId : null;
+        const box = $("dRelated");
+        if (e && box) box.outerHTML = relatedHtml(e, relatedSaved(e) || []);
+      }
       else if (b.dataset.act === "remove") {
         b.parentElement.innerHTML = `Remove this title from your list?
           <button type="button" class="link danger" data-act="remove-yes">Yes, remove it</button>
