@@ -85,6 +85,8 @@
     render();
   }
 
+  // The address mirrors what you're looking at (user, manga, tab), so a link or a reload lands on the same view.
+  // Opening the plain address starts on the Library.
   function syncUrl() {
     const p = new URLSearchParams();
     if (S.data && S.data.source === "live") p.set("user", S.data.user);
@@ -683,6 +685,8 @@
       show(data);
     } catch (err) {
       setStatus(err.message, "warn");
+      // Opened from a link and it failed: show the form so another name can be tried.
+      if ($("app").hidden) { $("loader").hidden = false; $("user").value = user; }
     } finally {
       S.busy = false;
       document.body.classList.remove("loading");
@@ -757,6 +761,10 @@
       else $("file").click();
     });
     $("changeBtn").addEventListener("click", () => {
+      // Start fresh: clear the address, and open the next list on the Library (anime).
+      history.replaceState(null, "", location.pathname);
+      S.tab = "library";
+      S.kind = "anime";
       $("app").hidden = true;
       $("loader").hidden = false;
       $("user").value = S.data && S.data.source === "live" ? S.data.user : "";
@@ -904,18 +912,27 @@
     bind();
     MALD.pruneDetails();
     const p = new URLSearchParams(location.search);
-    if (p.get("kind") === "manga") S.kind = "manga";
-    if (["progress", "next", "stats"].includes(p.get("tab"))) S.tab = p.get("tab");
     if (!MALD.relayReady()) {
       $("liveHint").textContent = "Live loading isn't set up on this site yet. Use the XML upload below.";
       $("user").disabled = true;
       $("loadBtn").disabled = true;
     }
+    // A tab or manga in the address is honoured; otherwise every visit starts on the Library (anime).
+    if (p.get("kind") === "manga") S.kind = "manga";
+    if (["progress", "next", "stats"].includes(p.get("tab"))) S.tab = p.get("tab");
     const saved = MALD.loadSaved();
     const wanted = p.get("user");
     if (wanted && MALD.relayReady()) {
-      const fresh = saved && saved.source === "live" && saved.user.toLowerCase() === wanted.toLowerCase() && Date.now() - saved.fetchedAt < 10 * 60 * 1000;
-      if (fresh) show(saved); else { $("user").value = wanted; loadUser(wanted); }
+      const same = saved && saved.source === "live" && saved.user.toLowerCase() === wanted.toLowerCase();
+      if (same) {
+        // Already saved: show it straight away, and refresh quietly if it's over 30 minutes old.
+        show(saved);
+        if (Date.now() - saved.fetchedAt > 30 * 60 * 1000) loadUser(wanted);
+      } else {
+        // Someone else: show a loading message instead of the "choose a list" form.
+        $("loader").hidden = true;
+        loadUser(wanted);
+      }
     } else if (saved && (saved.anime || saved.manga)) {
       show(saved);
     } else {
