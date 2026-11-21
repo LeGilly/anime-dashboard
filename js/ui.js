@@ -530,6 +530,7 @@
         for (const [id, d] of res.details) st.details.set(id, d);
         if (res.error) { st.bg.looking = null; slowedDown(res.error); return false; }
         st.bg.looking.done = Math.min(missing.length, i + 5);
+        if (st.bg.done) st.bg.found = (st.bg.found || 0) + Math.min(5, missing.length - i); // new titles from sequel checks
         updateBgNote(kind);
       }
       if (missing.length) { st.bg.looking = null; refreshNext(kind, entries); }
@@ -593,9 +594,14 @@
   function bgNoteText(st) {
     const label = S.kind === "anime" ? "anime" : "manga";
     const lk = st.bg && st.bg.running && st.bg.looking;
-    if (lk) return `Looking up ${MALD.fmtNum(lk.total)} suggested title${lk.total === 1 ? "" : "s"} (genres, length, airing)… ${MALD.fmtNum(lk.done)}/${MALD.fmtNum(lk.total)}. `
+    // The first lookups (before any sequel check) are a step of their own; later ones happen quietly
+    // under the sequel count, as "new titles found".
+    if (lk && !st.bg.done) return `Looking up ${MALD.fmtNum(lk.total)} suggested title${lk.total === 1 ? "" : "s"} (genres, length, airing)… ${MALD.fmtNum(lk.done)}/${MALD.fmtNum(lk.total)}. `
       + (st.bg.total ? `Then checking your ${label} for sequels (${MALD.fmtNum(st.bg.done)}/${MALD.fmtNum(st.bg.total)}).` : "");
-    if (st.bg && st.bg.running && st.bg.total) return `Checking your ${label} for sequels… ${MALD.fmtNum(st.bg.done)}/${MALD.fmtNum(st.bg.total)}. Results update as it goes.`;
+    if (st.bg && st.bg.running && st.bg.total) {
+      const found = st.bg.found ? ` ${MALD.fmtNum(st.bg.found)} new title${st.bg.found === 1 ? "" : "s"} found so far.` : "";
+      return `Checking your ${label} for sequels… ${MALD.fmtNum(st.bg.done)}/${MALD.fmtNum(st.bg.total)}.${found} Results update as it goes.`;
+    }
     if (st.bg && st.bg.running) return "Looking up suggested titles…";
     return "";
   }
