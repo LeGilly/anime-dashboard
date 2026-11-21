@@ -448,3 +448,20 @@ footer a { color: inherit; }
 .prose h2:first-child { margin-top: 0; }
 .prose p, .prose li { font-size: 0.95rem; }
 .prose ul { padding-left: 20px; margin: 6px 0; }
+
+/* Related titles in the detail panel */
+.d-back { display: block; margin: 0 0 8px; padding: 0; text-decoration: none; }
+.rels { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.rel { display: flex; align-items: center; gap: 10px; }
+.rel-open {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; text-align: left;
+  background: transparent; color: var(--ink); border: 1px solid var(--line); border-radius: 10px; padding: 6px 10px 6px 6px; font-weight: 500;
+}
+.rel-open:hover { border-color: var(--accent); }
+.rel-open img, .rel-noimg { width: 36px; height: 50px; flex: none; object-fit: cover; border-radius: 6px; background: var(--tag); }
+.rel-txt { min-width: 0; display: flex; flex-direction: column; line-height: 1.25; }
+.rel-t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rel-k { font-size: 0.75rem; color: var(--muted); font-weight: 400; }
+.rel .pill, .rel .rel-add { flex: none; white-space: nowrap; }
+.rel .rel-add { padding: 6px 10px; font-size: 0.8rem; }
+#dRelated .muted { color: var(--muted); font-size: 0.85rem; margin: 0; }

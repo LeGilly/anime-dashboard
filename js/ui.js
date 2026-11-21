@@ -24,6 +24,9 @@
     msearch: {},
     recData: {},
     recPool: new Map(),
+    relPool: new Map(),   // related titles opened from a detail panel (not on the list being viewed)
+    detailId: null,       // title shown in the detail panel
+    detailTrail: [],      // titles you came from, through "Related", for the Back button
     prefs: { english: false, blur: true },
     busy: false,
   };
@@ -820,12 +823,13 @@
   }
 
   function findEntry(id) {
-    return (list() || []).find((x) => String(x.id) === String(id)) || S.recPool.get(Number(id));
+    return (list() || []).find((x) => String(x.id) === String(id)) || S.recPool.get(Number(id)) || S.relPool.get(Number(id));
   }
 
   function openDetail(id) {
     const e = findEntry(id);
     if (!e) return;
+    S.detailTrail = [];
     fillDetail(e);
     lockPage();
     $("detail").showModal();
@@ -856,9 +860,12 @@
       ["Members", e.members ? MALD.fmtNum(e.members) : ""],
     ].filter((p) => p[0]));
     const img = e.imageLarge || e.image;
+    S.detailId = e.id;
+    const back = S.detailTrail.length ? findEntry(S.detailTrail[S.detailTrail.length - 1]) : null;
     $("detail").innerHTML = `
       <div class="d-wrap">
         <button class="d-close ghost" data-act="close" aria-label="Close">✕</button>
+        ${back ? `<button type="button" class="link d-back" data-act="relback">&larr; Back to ${esc(titleOf(back))}</button>` : ""}
         ${img ? `<img class="d-cover${hidden18(e) ? " nsfw" : ""}" src="${esc(img)}" alt="" referrerpolicy="no-referrer">` : ""}
         <div class="d-body">
           <h2>${esc(titleOf(e))}</h2>
@@ -866,9 +873,107 @@
           ${e.genres.length ? `<ul class="tags">${e.genres.map((g) => `<li>${esc(g)}</li>`).join("")}</ul>` : ""}
           ${listSection(e, theirs)}
           ${info ? `<h3>About</h3><dl>${info}</dl>` : ""}
+          ${relatedSection(e)}
           <p><a class="btn" href="${malUrl(e)}" target="_blank" rel="noopener">Open on MyAnimeList</a></p>
         </div>
       </div>`;
+  }
+
+  /* ---------- related titles in the detail panel ----------
+     Sequels, prequels, movies… as MAL lists them. One MyAnimeList request per title the first time
+     (names, covers and how they're related come together), then saved for 30 days. */
+  const REL_ORDER = ["prequel", "sequel", "parent_story", "full_story", "side_story", "spin_off",
+    "alternative_setting", "alternative_version", "summary", "adaptation", "character", "other"];
+  const REL_LABEL = {
+    prequel: "Prequel", sequel: "Sequel", parent_story: "Main story", full_story: "Full story", side_story: "Side story",
+    spin_off: "Spin-off", alternative_setting: "Alternative setting", alternative_version: "Alternative version",
+    summary: "Summary", adaptation: "Adaptation", character: "Same characters", other: "Other",
+  };
+  const REL_MAX = 300; // titles whose related list is kept
+  const relLoading = new Map();
+  const relKey = (kind) => `mald:related:${kind}`;
+  function relatedSaved(e) {
+    const hit = MALD.readCache(relKey(e.kind))[e.id];
+    return hit && Date.now() - hit[0] < MALD.LINKS_TTL ? hit[1] : null;
+  }
+  function loadRelated(e) {
+    const k = `${e.kind}:${e.id}`;
+    if (!relLoading.has(k)) {
+      relLoading.set(k, MALD.relay("/links", { type: e.kind, ids: String(e.id) }, { priority: 0 }).then((res) => {
+        const it = res.items[0] || {};
+        const rel = it.missing ? [] : (it.related || []).map(([id, title, pic, how]) => [id, title, pic, how]);
+        const cache = MALD.readCache(relKey(e.kind));
+        cache[e.id] = [Date.now(), rel];
+        const ids = Object.keys(cache);
+        if (ids.length > REL_MAX) ids.sort((a, b) => cache[a][0] - cache[b][0]).slice(0, ids.length - REL_MAX).forEach((id) => delete cache[id]);
+        MALD.writeCache(relKey(e.kind), cache);
+        return rel;
+      }).finally(() => relLoading.delete(k)));
+    }
+    return relLoading.get(k);
+  }
+  function relatedSection(e) {
+    if (!MALD.relayReady()) return "";
+    const rel = relatedSaved(e);
+    if (rel) return relatedHtml(e, rel);
+    loadRelated(e).then(() => {
+      if (S.detailId === e.id && $("detail").open) { const box = $("dRelated"); if (box) box.outerHTML = relatedHtml(e, relatedSaved(e) || []); }
+    }).catch((err) => {
+      const box = $("dRelated");
+      if (S.detailId === e.id && box) box.innerHTML = `<h3>Related</h3><p class="muted">Couldn't load related titles: ${esc(err.message)}</p>`;
+    });
+    return `<div id="dRelated"><h3>Related</h3><p class="muted">Looking up related titles…</p></div>`;
+  }
+  function relatedHtml(e, rel) {
+    if (!rel.length) return `<div id="dRelated"></div>`;
+    const anime = e.kind === "anime";
+    const rows = rel.slice().sort((a, b) => (REL_ORDER.indexOf(a[3]) + 99) % 99 - (REL_ORDER.indexOf(b[3]) + 99) % 99).map(([id, title, pic, how]) => {
+      const known = findEntry(id) || (A.me && A.myEntry(e.kind, id));
+      const name = known ? titleOf(known) : title;
+      const blur = known && hidden18(known);
+      // Where it stands: your status (signed in), else theirs, else a quick add.
+      const mine = A.me && A.myEntry(e.kind, id);
+      const seen = mine || (!A.me && known && known.status ? known : null);
+      const side = seen
+        ? `<span class="pill"><i class="dot st-${seen.status}"></i>${esc(statusText(seen))}</span>`
+        : A.me ? `<button type="button" class="mbtn rel-add" data-add="${id}">+ ${anime ? "Plan to watch" : "Plan to read"}</button>` : "";
+      return `<li class="rel">
+        <button type="button" class="rel-open" data-rel="${id}" title="${esc(name)}">
+          ${pic ? `<img src="${esc(pic)}" alt="" loading="lazy" referrerpolicy="no-referrer"${blur ? ' class="nsfw"' : ""}>` : `<span class="rel-noimg"></span>`}
+          <span class="rel-txt"><span class="rel-t">${esc(name)}</span><span class="rel-k">${esc(REL_LABEL[how] || how.replace(/_/g, " "))}</span></span>
+        </button>
+        ${side}
+      </li>`;
+    }).join("");
+    return `<div id="dRelated"><h3>Related</h3><ul class="rels">${rows}</ul></div>`;
+  }
+  // A related title as a full entry: from a list if it's there, otherwise its details (saved, or one request).
+  async function relatedEntry(id, kind) {
+    const known = findEntry(id) || (A.me && A.myEntry(kind, id));
+    if (known) return known;
+    const { details, error } = await MALD.loadDetails(kind, [Number(id)], { priority: 0 });
+    const d = details.get(Number(id));
+    if (!d || d.missing) throw new Error(error || "MyAnimeList doesn't have this title anymore.");
+    const entry = MALD.makeEntry(Object.assign({ id: Number(id), kind }, d, { status: null }));
+    S.relPool.set(Number(id), entry);
+    return entry;
+  }
+  async function openRelated(id) {
+    const from = S.detailId;
+    const kind = (findEntry(from) || {}).kind || S.kind;
+    try {
+      const e = await relatedEntry(id, kind);
+      S.detailTrail.push(from);
+      fillDetail(e);
+      $("detail").scrollTop = 0;
+    } catch (err) {
+      toast(`Couldn't open it: ${err.message}`, "warn");
+    }
+  }
+  function relatedBack() {
+    const id = S.detailTrail.pop();
+    const e = findEntry(id) || (A.me && A.myEntry(S.kind, id));
+    if (e) { fillDetail(e); $("detail").scrollTop = 0; }
   }
 
   /* ---------- loading ---------- */
@@ -958,8 +1063,8 @@
   }
 
   async function addToMine(id) {
-    const src = findEntry(id) || (A.mine && A.myEntry(S.kind, id));
-    if (!src) return;
+    let src = findEntry(id) || (A.mine && A.myEntry(S.kind, id));
+    if (!src) { try { src = await relatedEntry(id, S.kind); } catch (err) { toast(`Couldn't add it: ${err.message}`, "warn"); return; } }
     const word = src.kind === "manga" ? "plan to read" : "plan to watch";
     try {
       const pending = A.addPlanned(src);
@@ -975,7 +1080,9 @@
   function refreshAfterAdd(id) {
     render();
     const dlg = $("detail");
-    if (dlg.open) { const e = findEntry(id) || A.myEntry(S.kind, id); if (e) { const top = dlg.scrollTop; fillDetail(e); dlg.scrollTop = top; } }
+    // Redraw whatever the panel shows (it may be the title that has the added one among its related titles).
+    const shown = dlg.open ? S.detailId : null;
+    if (shown != null) { const e = findEntry(shown) || A.myEntry(S.kind, shown); if (e) { const top = dlg.scrollTop; fillDetail(e); dlg.scrollTop = top; } }
   }
 
   async function removeFromMine(id) {
@@ -1256,6 +1363,8 @@
         const e = findEntry(box.dataset.edit);
         if (e) doEdit(e, { [b.dataset.step]: (e[b.dataset.step] || 0) + Number(b.dataset.by) });
       } else if (b.dataset.add) addToMine(b.dataset.add);
+      else if (b.dataset.rel) openRelated(b.dataset.rel);
+      else if (b.dataset.act === "relback") relatedBack();
       else if (b.dataset.act === "remove") {
         b.parentElement.innerHTML = `Remove this title from your list?
           <button type="button" class="link danger" data-act="remove-yes">Yes, remove it</button>
