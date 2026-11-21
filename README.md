@@ -1,6 +1,6 @@
 # Anime Dashboard
 
-**▶ Open: https://legilly.com/anime-dashboard/**
+**▶ Open: https://anime.legilly.com/**
 
 A cleaner way to browse a MyAnimeList anime or manga list.
 
@@ -8,6 +8,13 @@ A cleaner way to browse a MyAnimeList anime or manga list.
 - **Progress:** what you're watching or reading, with episodes and time left, titles that have gone quiet, and your plan-to-watch queue.
 - **Next up:** what to watch or read next: sequels to series you finished, picks from your plan-to-watch and from MyAnimeList users' recommendations, and upcoming or airing related titles. Each pick says why it was chosen, with filters for genre, length and airing status.
 - **Stats:** totals and time watched, a status breakdown, top genres and studios (or authors), and a history of what you finished by year and month.
+
+## Signing in (optional)
+
+Sign in with MyAnimeList to see your own list, private entries included, and edit it from here:
+episodes (+1 in one tap), scores, status, rewatching, dates, adding titles from Next up, and removing titles.
+While signed in you can still browse anyone else's list, and see which of their titles are on yours.
+See the [privacy notice](https://anime.legilly.com/privacy.html).
 
 ## Loading a list
 

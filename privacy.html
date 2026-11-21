@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'">
+  <meta name="referrer" content="no-referrer">
+  <title>Privacy · Anime Dashboard</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23128afa'/%3E%3Ctext x='16' y='23' font-family='Segoe UI,Arial,sans-serif' font-size='19' font-weight='700' fill='white' text-anchor='middle'%3EA%3C/text%3E%3C/svg%3E">
+  <link rel="stylesheet" href="style.css?v=22">
+</head>
+<body>
+  <main class="wrap prose">
+    <nav class="back"><a href="./">&larr; Back to the dashboard</a></nav>
+    <header>
+      <h1>Privacy</h1>
+      <p class="sub">Anime Dashboard · last updated 21 November 2026</p>
+    </header>
+
+    <section class="card">
+      <h2>In short</h2>
+      <p>Anime Dashboard has no accounts and no database. Your lists are kept only in your own browser.
+        Signing in is optional and only lets you see and edit your own MyAnimeList list from here.</p>
+
+      <h2>What's kept in your browser</h2>
+      <ul>
+        <li>The lists you load (yours, and the last one you browsed), for up to 30 days.</li>
+        <li>Details about titles (covers, genres, sequels), to avoid asking MyAnimeList again, for up to 60 days.</li>
+        <li>Your settings (English titles, blurring 18+ covers).</li>
+      </ul>
+      <p>You can remove all of it at any time with <strong>Settings → Forget this list</strong>, or by clearing this site's data in your browser.</p>
+
+      <h2>If you sign in with MyAnimeList</h2>
+      <ul>
+        <li>You approve access on MyAnimeList's own page. Your MyAnimeList password never comes to this site.</li>
+        <li>MyAnimeList gives back an access key. It's kept in an encrypted cookie that only the dashboard's relay
+          (api.legilly.com) can read: not this page, not other pages, not other sites.</li>
+        <li>The key is used only to read your list (including private entries) and to make the changes you ask for:
+          episodes, scores, status, dates, adding and removing titles.</li>
+        <li>It stays for up to 60 days, or until you choose <strong>Settings → Sign out</strong>.
+          You can also remove the dashboard's access from your MyAnimeList account settings.</li>
+      </ul>
+
+      <h2>The relay</h2>
+      <p>The relay is a small program on Cloudflare that passes requests between your browser and MyAnimeList.
+        It doesn't store your lists, your sign-in or anything else. Cloudflare may keep short technical logs
+        (such as which addresses made requests) as part of running its service.</p>
+
+      <h2>Sharing</h2>
+      <p>Nothing is sold or shared. Your data only goes between your browser, the relay and MyAnimeList.
+        There are no ads, trackers or analytics.</p>
+
+      <h2>Questions</h2>
+      <p>Anime Dashboard is a fan-made project, not affiliated with MyAnimeList. The code is public on
+        <a href="https://github.com/LeGilly/anime-dashboard">GitHub</a>, where you can also ask questions.</p>
+    </section>
+  </main>
+</body>
+</html>

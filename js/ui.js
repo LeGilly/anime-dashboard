@@ -38,6 +38,21 @@
   const malUrl = (e) => `https://myanimelist.net/${e.kind}/${e.id}`;
   // MAL marks hentai as "gray" (not only "black"), so blur anything not marked safe, plus Hentai or Erotica genres.
   const hidden18 = (e) => S.prefs.blur && MALD.isAdult(e);
+  const A = MALD.account;
+  // Editing only on your own list, while signed in.
+  const canEdit = () => !!(A.me && S.data && S.data.source === "mine");
+  // Whose list is on screen, for wording: "your" unless you're signed in and browsing someone else's.
+  const owner = () => (A.me && S.data && S.data.source !== "mine" ? "their" : "your");
+  let toastTimer;
+  function toast(text, kind) {
+    const t = $("toast");
+    t.textContent = text;
+    t.className = kind || "";
+    t.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { t.hidden = true; }, kind === "warn" ? 6000 : 2500);
+  }
+  const plusBtn = (e) => `<button type="button" class="plus1" data-plus="${e.id}" title="+1 ${e.kind === "manga" ? "chapter" : "episode"}" aria-label="+1 ${e.kind === "manga" ? "chapter" : "episode"} for ${esc(titleOf(e))}">+1</button>`;
   const statusText = (e) => (e.repeating ? (e.kind === "manga" ? "Rereading" : "Rewatching") : MALD.statusLabel(e.status, e.kind));
 
   function setStatus(text, kind) {
@@ -77,8 +92,11 @@
     $("loader").hidden = true;
     $("app").hidden = false;
     $("who").textContent = data.user || "Your list";
-    $("whoMeta").textContent = (data.source === "live" ? "Live from MAL" : "From XML export") + " · updated " + MALD.fmtAgo(data.fetchedAt);
-    $("refreshBtn").textContent = data.source === "live" ? "Refresh" : "Upload newer";
+    const from = data.source === "mine" ? "Your list (signed in)" : data.source === "live" ? (A.me ? "Viewing someone else's list" : "Live from MAL") : "From XML export";
+    $("whoMeta").textContent = from + " · updated " + MALD.fmtAgo(data.fetchedAt);
+    $("refreshBtn").textContent = data.source === "xml" ? "Upload newer" : "Refresh";
+    $("mineBtn").hidden = !(A.me && data.source !== "mine");
+    updateAccount();
     if (data.notes && data.notes.length) setStatus(data.notes.join(" "), "warn");
     else setStatus(`${MALD.fmtNum((data.anime || []).length)} anime · ${MALD.fmtNum((data.manga || []).length)} manga`);
     syncUrl();
@@ -89,7 +107,7 @@
   // Opening the plain address starts on the Library.
   function syncUrl() {
     const p = new URLSearchParams();
-    if (S.data && S.data.source === "live") p.set("user", S.data.user);
+    if (S.data && S.data.source !== "xml") p.set("user", S.data.user);
     if (S.kind !== "anime") p.set("kind", S.kind);
     if (S.tab !== "library") p.set("tab", S.tab);
     const q = p.toString();
@@ -200,12 +218,14 @@
     const status = statusText(e);
     const meta = [e.mediaType, e.year].filter(Boolean).join(" · ");
     const prog = e.status === "completed" || e.status === "planned" ? "" : ` · ${progressText(e)}`;
-    return `<button class="tile st-${e.status}" data-id="${e.id}" title="${esc(titleOf(e))}">
+    const tileHtml = `<button class="tile st-${e.status}" data-id="${e.id}" title="${esc(titleOf(e))}">
       <span class="cover">${cover(e, "img")}${e.score ? `<span class="badge">★ ${e.score}</span>` : ""}</span>
       <span class="t">${esc(titleOf(e))}</span>
       <span class="m">${esc(meta)}</span>
       <span class="m s"><i class="dot st-${e.status}"></i>${esc(status)}${prog}</span>
     </button>`;
+    // Quick +1 for what you're watching (your own list, signed in).
+    return canEdit() && e.status === "current" ? `<div class="tw">${tileHtml}${plusBtn(e)}</div>` : tileHtml;
   }
 
   function row(e) {
@@ -250,7 +270,7 @@
       if (anime && left && e.duration) bits.push(`~${MALD.fmtDur(left * e.duration)}`);
       if (e.updatedAt) bits.push(`updated ${MALD.fmtAgo(e.updatedAt)}`);
       const airing = e.airStatus === "currently_airing" || e.airStatus === "currently_publishing";
-      return `<button class="pcard" data-id="${e.id}">
+      const html = `<button class="pcard" data-id="${e.id}">
         ${cover(e, "thumb")}
         <span class="p-body">
           <strong>${esc(titleOf(e))}</strong>
@@ -259,6 +279,7 @@
           <small>${esc(bits.join(" · "))}</small>
         </span>
       </button>`;
+      return canEdit() && e.status === "current" ? `<div class="pw">${html}${plusBtn(e)}</div>` : html;
     };
 
     const LIMIT = 9;
@@ -283,7 +304,7 @@
       <section class="block">
         <h2>${esc(MALD.statusLabel("planned", S.kind))} <small>${MALD.fmtNum(queue.length)}</small></h2>
         <div class="qhead">
-          <p class="hint">${MALD.fmtNum(queueUnits)} ${unitName(queueUnits)}${anime && queueSecs ? ` · about ${MALD.fmtDur(queueSecs)}` : ""} in your queue.</p>
+          <p class="hint">${MALD.fmtNum(queueUnits)} ${unitName(queueUnits)}${anime && queueSecs ? ` · about ${MALD.fmtDur(queueSecs)}` : ""} in ${owner()} queue.</p>
           <label class="sortby">Sort <select id="qSort">
             ${[["mean", "MAL score"], ["popular", "Most popular"], ["short", "Shortest first"], ["title", "Title"]].map(([v, t]) => `<option value="${v}"${S.queueSort === v ? " selected" : ""}>${t}</option>`).join("")}
           </select></label>
@@ -645,15 +666,21 @@
       const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
       const len = anime ? (e.mediaType === "Movie" ? "" : e.total ? plural(e.total, "ep") : "") : e.totalVol ? plural(e.totalVol, "vol") : e.total ? `${e.total} ch` : "";
       const meta = [e.mediaType, extra === "soon" ? when : e.year, extra === "soon" ? "" : len, e.mean ? `★ ${e.mean.toFixed(2)}` : ""].filter(Boolean).join(" · ");
-      return `<button class="rcard" data-id="${e.id}">
+      // Signed in: show whether it's on YOUR list, and offer to add it if it isn't.
+      const mineE = A.me ? (canEdit() ? (x.onList ? e : null) : A.myEntry(S.kind, e.id)) : null;
+      const myTag = A.me && !canEdit() && mineE ? ` <span class="tag mine">On my list: ${esc(statusText(mineE))}</span>` : "";
+      const html = `<button class="rcard" data-id="${e.id}">
         ${cover(e, "rthumb")}
         <span class="rc-body">
           <strong>${esc(titleOf(e))}</strong>
           <small>${esc(meta)}</small>
-          <span class="rc-tags">${x.onList ? `<span class="tag">On your ${esc(plan.toLowerCase())}</span>` : `<span class="tag new">Not on your list</span>`}${extra !== "soon" && when ? ` <span class="tag">${esc(when)}</span>` : ""}</span>
+          <span class="rc-tags">${x.onList ? `<span class="tag">On ${owner()} ${esc(plan.toLowerCase())}</span>` : `<span class="tag new">Not on ${owner()} list</span>`}${myTag}${extra !== "soon" && when ? ` <span class="tag">${esc(when)}</span>` : ""}</span>
           ${x.reasons.length ? `<ul class="reasons">${x.reasons.map((t) => `<li>${esc(t)}</li>`).join("")}</ul>` : ""}
         </span>
       </button>`;
+      return A.me && !mineE
+        ? `<div class="rw">${html}<button type="button" class="addplan mbtn" data-add="${e.id}">+ ${anime ? "Plan to watch" : "Plan to read"}</button></div>`
+        : html;
     };
     const section = (title, sub, items, empty, opts = {}) => {
       const shown = opts.limit ? items.slice(0, opts.limit) : items;
@@ -708,14 +735,77 @@
     lockedAt = null;
   }
 
+  // The "on your list" part of the panel: an editor on your own list (signed in); on someone else's list,
+  // their entry plus your own status for that title; otherwise, as before.
+  function listSection(e, theirs) {
+    const anime = e.kind === "anime";
+    if (canEdit()) return e.status ? `<h3>On your list</h3>${editor(e)}` : `<h3>On your list</h3><p>Not on your list yet.</p>${addButton(e)}`;
+    const whose = A.me ? `On ${esc(S.data.user)}'s list` : "On your list";
+    let html = `<h3>${whose}</h3><dl>${theirs}</dl>`;
+    if (A.me) {
+      const m = A.myEntry(e.kind, e.id);
+      html += `<h3>On your list</h3>` + (m
+        ? `<p class="mystat"><span class="pill"><i class="dot st-${m.status}"></i>${esc(statusText(m))}</span>${m.score ? ` · ★ ${m.score}` : ""}${m.status === "current" || m.status === "on_hold" ? ` · ${anime ? "Ep" : "Ch"} ${progressText(m)}` : ""}</p>`
+        : `<p>Not on your list.</p>${addButton(e)}`);
+    }
+    return html;
+  }
+  const addButton = (e) => `<p><button type="button" class="mbtn" data-add="${e.id}">+ Add to my ${e.kind === "manga" ? "plan to read" : "plan to watch"}</button></p>`;
+
+  // Editor for your own entry; every change is sent to MAL straight away.
+  function editor(e) {
+    const anime = e.kind === "anime";
+    const statusOpts = MALD.STATUS_UI.map((s) => `<option value="${s}"${e.status === s ? " selected" : ""}>${esc(MALD.statusLabel(s, e.kind))}</option>`).join("");
+    const SCORES = ["", "Appalling", "Horrible", "Very bad", "Bad", "Average", "Fine", "Good", "Very good", "Great", "Masterpiece"];
+    const scoreOpts = `<option value="0">No score</option>` + [10, 9, 8, 7, 6, 5, 4, 3, 2, 1].map((n) => `<option value="${n}"${e.score === n ? " selected" : ""}>${n} · ${SCORES[n]}</option>`).join("");
+    const full = (d) => (/^\d{4}-\d{2}-\d{2}$/.test(d || "") ? d : "");
+    const stepper = (field, label, value, total) => `
+      <div class="step">
+        <span class="step-l">${label}</span>
+        <button type="button" class="ghost" data-step="${field}" data-by="-1" aria-label="One less"${value <= 0 ? " disabled" : ""}>−</button>
+        <input type="number" inputmode="numeric" min="0"${total ? ` max="${total}"` : ""} value="${value}" data-f="${field}" aria-label="${label}">
+        <span class="step-t">/ ${total || "?"}</span>
+        <button type="button" class="ghost" data-step="${field}" data-by="1" aria-label="One more"${total && value >= total ? " disabled" : ""}>+</button>
+      </div>`;
+    return `<div class="editor" data-edit="${e.id}">
+      <div class="erow">
+        <label>Status <select data-f="status">${statusOpts}</select></label>
+        <label>Score <select data-f="score">${scoreOpts}</select></label>
+      </div>
+      ${stepper("progress", anime ? "Episodes" : "Chapters", e.progress, e.total)}
+      ${!anime ? stepper("progressVol", "Volumes", e.progressVol, e.totalVol) : ""}
+      <div class="erow">
+        <label class="chk"><input type="checkbox" data-f="repeating"${e.repeating ? " checked" : ""}> ${anime ? "Rewatching" : "Rereading"}</label>
+        <label>${anime ? "Times rewatched" : "Times reread"} <input type="number" inputmode="numeric" min="0" value="${e.timesRepeated || 0}" data-f="timesRepeated" class="small"></label>
+      </div>
+      <div class="erow">
+        <label>Started <input type="date" value="${full(e.myStart)}" data-f="myStart"></label>
+        <label>Finished <input type="date" value="${full(e.myFinish)}" data-f="myFinish"></label>
+      </div>
+      <p class="esave" aria-live="polite">${e.updatedAt ? `Last updated ${esc(MALD.fmtAgo(e.updatedAt))}` : ""}</p>
+      <p class="eremove"><button type="button" class="link danger" data-act="remove">Remove from list</button></p>
+    </div>`;
+  }
+
+  function findEntry(id) {
+    return (list() || []).find((x) => String(x.id) === String(id)) || S.recPool.get(Number(id));
+  }
+
   function openDetail(id) {
-    const e = (list() || []).find((x) => String(x.id) === String(id)) || S.recPool.get(Number(id));
+    const e = findEntry(id);
     if (!e) return;
+    fillDetail(e);
+    lockPage();
+    $("detail").showModal();
+    $("detail").scrollTop = 0;
+  }
+
+  function fillDetail(e) {
     const anime = e.kind === "anime";
     const dl = (pairs) => pairs.filter((p) => p[1] !== "" && p[1] != null).map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("");
-    const mine = !e.status ? `<dt>Status</dt><dd>Not on your list yet</dd>` : dl([
+    const theirs = !e.status ? `<dt>Status</dt><dd>Not on ${owner()} list yet</dd>` : dl([
       ["Status", `<span class="pill"><i class="dot st-${e.status}"></i>${esc(statusText(e))}</span>`],
-      ["Your score", e.score ? `★ ${e.score}` : "Not scored"],
+      [owner() === "your" ? "Your score" : "Score", e.score ? `★ ${e.score}` : "Not scored"],
       [anime ? "Episodes" : "Chapters", `${progressText(e)}`],
       ["Volumes", !anime && e.totalVol ? `${e.progressVol}/${e.totalVol}` : ""],
       ["Started", esc(MALD.fmtDate(e.myStart))],
@@ -742,22 +832,140 @@
           <h2>${esc(titleOf(e))}</h2>
           ${e.titleEn && e.titleEn !== titleOf(e) ? `<p class="sub">${esc(e.titleEn)}</p>` : e.titleEn && e.title !== titleOf(e) ? `<p class="sub">${esc(e.title)}</p>` : ""}
           ${e.genres.length ? `<ul class="tags">${e.genres.map((g) => `<li>${esc(g)}</li>`).join("")}</ul>` : ""}
-          <h3>On your list</h3><dl>${mine}</dl>
+          ${listSection(e, theirs)}
           ${info ? `<h3>About</h3><dl>${info}</dl>` : ""}
           <p><a class="btn" href="${malUrl(e)}" target="_blank" rel="noopener">Open on MyAnimeList</a></p>
         </div>
       </div>`;
-    lockPage();
-    $("detail").showModal();
-    $("detail").scrollTop = 0;
   }
 
   /* ---------- loading ---------- */
+
+  /* ---------- your own list (signed in) ---------- */
+
+  function updateAccount() {
+    const line = $("acctLine");
+    if (A.me) {
+      line.hidden = false;
+      line.innerHTML = `Signed in as <strong>${esc(A.me.name)}</strong> · <button type="button" class="link" data-acct="signout">Sign out</button>`;
+    } else if (A.available()) {
+      line.hidden = false;
+      line.innerHTML = `<button type="button" class="link" data-acct="signin">Sign in with MyAnimeList</button> to edit your own list`;
+    } else line.hidden = true;
+    $("signinBox").hidden = !(A.available() && !A.me);
+    $("mineBox").hidden = !A.me;
+    if (A.me) $("mineHint").textContent = `Signed in as ${A.me.name}.`;
+    $("signinOr").hidden = !A.available();
+    $("mineBtn").hidden = !(A.me && S.data && S.data.source !== "mine");
+  }
+
+  async function openMine() {
+    if (A.mine) {
+      MALD.save(A.mine);
+      show(A.mine);
+      if (Date.now() - A.mine.fetchedAt > 30 * 60 * 1000) refreshMine();
+      return;
+    }
+    $("loader").hidden = true;
+    await refreshMine();
+  }
+
+  async function refreshMine() {
+    if (S.busy) return;
+    S.busy = true;
+    const showing = !S.data || S.data.source === "mine" || $("app").hidden;
+    if (showing) setStatus("Loading your list…", "busy");
+    try {
+      const data = await A.loadMine();
+      if (showing || (S.data && S.data.source === "mine")) { MALD.save(data); show(data); }
+    } catch (err) {
+      if (err.status === 401) signedOut(err.message);
+      else if (showing) setStatus(err.message, "warn");
+      if ($("app").hidden) $("loader").hidden = false;
+    } finally {
+      S.busy = false;
+    }
+  }
+
+  function signedOut(message) {
+    A.me = null;
+    A.mine = null;
+    updateAccount();
+    if (S.data && S.data.source === "mine") { S.data = null; $("app").hidden = true; $("loader").hidden = false; }
+    if (message) setStatus(message, "warn");
+  }
+
+  // Applies a change to your own entry: shown straight away, sent to MAL, undone if MAL refuses.
+  async function doEdit(e, change, quick) {
+    const before = e.status;
+    const pending = A.edit(e, change);
+    afterChange(e, "Saving…");
+    try {
+      const res = await pending;
+      if (res.unchanged) { afterChange(e, ""); return; }
+      afterChange(e, "Saved to MyAnimeList");
+      const unit = e.kind === "manga" ? "Ch" : "Ep";
+      if (e.status === "completed" && before !== "completed") toast(`${titleOf(e)}: marked as completed.`);
+      else if (quick) toast(`${titleOf(e)}: ${unit} ${progressText(e)}`);
+    } catch (err) {
+      afterChange(e, "");
+      if (err.status === 401) signedOut(err.message);
+      toast(`Couldn't save: ${err.message}`, "warn");
+    }
+  }
+  function afterChange(e, note) {
+    render();
+    const dlg = $("detail");
+    if (dlg.open && dlg.querySelector(`[data-edit="${e.id}"]`)) {
+      const top = dlg.scrollTop;
+      fillDetail(e);
+      dlg.scrollTop = top;
+      const label = dlg.querySelector(".esave");
+      if (label && note) label.textContent = note;
+    }
+  }
+
+  async function addToMine(id) {
+    const src = findEntry(id) || (A.mine && A.myEntry(S.kind, id));
+    if (!src) return;
+    const word = src.kind === "manga" ? "plan to read" : "plan to watch";
+    try {
+      const pending = A.addPlanned(src);
+      refreshAfterAdd(src.id);
+      await pending;
+      toast(`Added ${titleOf(src)} to your ${word}.`);
+    } catch (err) {
+      if (err.status === 401) signedOut(err.message);
+      toast(`Couldn't add it: ${err.message}`, "warn");
+    }
+    refreshAfterAdd(src.id);
+  }
+  function refreshAfterAdd(id) {
+    render();
+    const dlg = $("detail");
+    if (dlg.open) { const e = findEntry(id) || A.myEntry(S.kind, id); if (e) { const top = dlg.scrollTop; fillDetail(e); dlg.scrollTop = top; } }
+  }
+
+  async function removeFromMine(id) {
+    const e = findEntry(id);
+    if (!e) return;
+    try {
+      await A.remove(e);
+      $("detail").close();
+      toast(`Removed ${titleOf(e)} from your list.`);
+      render();
+    } catch (err) {
+      if (err.status === 401) signedOut(err.message);
+      toast(`Couldn't remove it: ${err.message}`, "warn");
+    }
+  }
 
   async function loadUser(user) {
     if (S.busy) return;
     user = user.trim();
     if (!user) return;
+    // Your own name while signed in: open your own list (with private entries and editing).
+    if (A.me && user.toLowerCase() === A.me.name.toLowerCase()) return openMine();
     S.busy = true;
     setStatus(`Loading ${user}'s lists…`, "busy");
     document.body.classList.add("loading");
@@ -765,6 +973,8 @@
       const data = await MALD.loadLive(user);
       MALD.save(data);
       show(data);
+      // Signed in and browsing someone else: have your own list at hand for "On your list".
+      if (A.me && !A.mine) A.loadMine().then(() => render()).catch(() => {});
     } catch (err) {
       setStatus(err.message, "warn");
       // Opened from a link and it failed: show the form so another name can be tried.
@@ -839,8 +1049,22 @@
       window.scrollTo({ top: 0 });
     });
     $("refreshBtn").addEventListener("click", () => {
-      if (S.data && S.data.source === "live") loadUser(S.data.user);
+      if (S.data && S.data.source === "mine") refreshMine();
+      else if (S.data && S.data.source === "live") loadUser(S.data.user);
       else $("file").click();
+    });
+    $("mineBtn").addEventListener("click", () => { S.tab = "library"; openMine(); });
+    $("openMineBtn").addEventListener("click", () => { S.tab = "library"; S.kind = "anime"; openMine(); });
+    $("signInBtn").addEventListener("click", () => A.signIn());
+    $("settings").addEventListener("click", async (ev) => {
+      const b = ev.target.closest("[data-acct]");
+      if (!b) return;
+      if (b.dataset.acct === "signin") A.signIn();
+      else {
+        await A.signOut();
+        signedOut();
+        toast("Signed out.");
+      }
     });
     $("changeBtn").addEventListener("click", () => {
       // Start fresh: clear the address, and open the next list on the Library (anime).
@@ -859,6 +1083,7 @@
     });
     $("forgetBtn").addEventListener("click", () => {
       MALD.forget();
+      A.mine = null;
       S.data = null;
       $("settings").hidden = true;
       $("settingsBtn").setAttribute("aria-expanded", "false");
@@ -953,6 +1178,8 @@
       else if (t.dataset.gall) { S.groupAll[t.dataset.gall] = !S.groupAll[t.dataset.gall]; render(); }
       else if (t.dataset.hmetric) { S.histMetric = t.dataset.hmetric; render(); }
       else if (t.dataset.year) { S.histYear = Number(t.dataset.year); render(); }
+      else if (t.dataset.plus) { const e = findEntry(t.dataset.plus); if (e) doEdit(e, { progress: e.progress + 1 }, true); }
+      else if (t.dataset.add) addToMine(t.dataset.add);
       else if (t.dataset.id) openDetail(t.dataset.id);
     });
 
@@ -972,6 +1199,32 @@
 
     const dlg = $("detail");
     dlg.addEventListener("close", unlockPage);
+    // Editor: every change goes to MAL straight away.
+    dlg.addEventListener("change", (ev) => {
+      const f = ev.target.dataset.f;
+      const box = ev.target.closest("[data-edit]");
+      if (!f || !box) return;
+      const e = findEntry(box.dataset.edit);
+      if (!e) return;
+      let v = ev.target.type === "checkbox" ? ev.target.checked : ev.target.value;
+      if (["score", "progress", "progressVol", "timesRepeated"].includes(f)) v = Math.max(0, parseInt(v, 10) || 0);
+      doEdit(e, { [f]: v });
+    });
+    dlg.addEventListener("click", (ev) => {
+      const b = ev.target.closest("button");
+      if (!b) return;
+      const box = b.closest("[data-edit]");
+      if (b.dataset.step && box) {
+        const e = findEntry(box.dataset.edit);
+        if (e) doEdit(e, { [b.dataset.step]: (e[b.dataset.step] || 0) + Number(b.dataset.by) });
+      } else if (b.dataset.add) addToMine(b.dataset.add);
+      else if (b.dataset.act === "remove") {
+        b.parentElement.innerHTML = `Remove this title from your list?
+          <button type="button" class="link danger" data-act="remove-yes">Yes, remove it</button>
+          <button type="button" class="link" data-act="remove-no">Cancel</button>`;
+      } else if (b.dataset.act === "remove-yes") removeFromMine(box.dataset.edit);
+      else if (b.dataset.act === "remove-no") { const e = findEntry(box.dataset.edit); if (e) fillDetail(e); }
+    });
     dlg.addEventListener("click", (ev) => {
       if (ev.target === dlg || ev.target.closest("[data-act=close]")) dlg.close();
     });
@@ -996,10 +1249,11 @@
     window.addEventListener("scroll", () => { tip.hidden = true; }, { passive: true });
   }
 
-  function start() {
+  async function start() {
     bind();
     MALD.pruneDetails();
     const p = new URLSearchParams(location.search);
+    const signin = p.get("signin");
     if (!MALD.relayReady()) {
       $("liveHint").textContent = "Live loading isn't set up on this site yet. Use the XML upload below.";
       $("user").disabled = true;
@@ -1008,8 +1262,27 @@
     // A tab or manga in the address is honoured; otherwise every visit starts on the Library (anime).
     if (p.get("kind") === "manga") S.kind = "manga";
     if (["progress", "next", "stats"].includes(p.get("tab"))) S.tab = p.get("tab");
-    const saved = MALD.loadSaved();
+    // Signed in? (The relay checks its cookie; this page never sees the sign-in itself.)
+    if (A.available()) {
+      setStatus("Checking sign-in…", "busy");
+      await A.check();
+    }
+    updateAccount();
+    const outcomes = {
+      ok: A.me ? `Signed in as ${A.me.name}.` : "",
+      cancelled: "Sign-in cancelled.",
+      failed: "Sign-in didn't work. Try again in a moment.",
+      expired: "The sign-in took too long. Try again.",
+    };
+    if (signin && outcomes[signin]) toast(outcomes[signin], signin === "ok" ? "" : "warn");
     const wanted = p.get("user");
+    if (A.me && (signin === "ok" || !wanted || wanted.toLowerCase() === A.me.name.toLowerCase())) {
+      if (!p.get("tab")) S.tab = "library";
+      return openMine();
+    }
+    const saved = MALD.loadSaved();
+    // Your own list saved from before, but no longer signed in: show it as a normal, read-only list.
+    if (saved && saved.source === "mine" && !A.me) saved.source = "live";
     if (wanted && MALD.relayReady()) {
       const same = saved && saved.source === "live" && saved.user.toLowerCase() === wanted.toLowerCase();
       if (same) {

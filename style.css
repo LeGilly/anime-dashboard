@@ -397,3 +397,55 @@ footer a { color: inherit; }
 }
 @media (prefers-color-scheme: dark) { .notice.warn { background: rgba(185, 138, 18, 0.14); } }
 @media (max-width: 560px) { .notice { flex-wrap: wrap; } .notice button { width: 100%; } }
+
+/* ---------- signing in and editing ---------- */
+.signin { text-align: center; }
+.signin .hint { margin-top: 8px; }
+.malbtn { background: #2e51a2; } /* MyAnimeList blue */
+.malbtn:hover { filter: brightness(1.1); }
+.acct { color: var(--muted); }
+.acct .link { padding: 0; font-size: inherit; }
+
+/* Quick +1 on covers and progress cards (kept outside the card's own button). */
+.tw, .pw, .rw { position: relative; display: flex; min-width: 0; }
+.tw > .tile, .pw > .pcard, .rw > .rcard { flex: 1; min-width: 0; }
+.plus1 {
+  position: absolute; padding: 4px 10px; font-size: 0.8rem; font-weight: 700; border-radius: 999px;
+  background: var(--accent); color: #fff; box-shadow: 0 2px 8px rgba(0, 0, 0, .25);
+}
+.tw .plus1 { top: 6px; left: 6px; }
+.pw .plus1 { right: 10px; top: 50%; transform: translateY(-50%); }
+.pw > .pcard { padding-right: 60px; }
+.rw .addplan { position: absolute; right: 10px; bottom: 10px; }
+.rw > .rcard { padding-bottom: 42px; }
+.tag.mine { color: var(--st-completed); }
+
+.editor { display: flex; flex-direction: column; gap: 10px; font-size: 0.9rem; }
+.editor label { display: flex; flex-direction: column; gap: 4px; color: var(--muted); font-size: 0.8rem; }
+.editor label.chk { flex-direction: row; align-items: center; gap: 8px; color: var(--ink); font-size: 0.9rem; min-height: 36px; }
+.editor select, .editor input[type="date"], .editor input[type="number"] { font-size: 0.9rem; padding: 6px 10px; }
+.editor input.small { width: 80px; }
+.erow { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: flex-end; }
+.step { display: flex; align-items: center; gap: 6px; }
+.step-l { min-width: 72px; color: var(--muted); font-size: 0.8rem; }
+.step input { width: 72px; text-align: center; }
+.step button { padding: 4px 12px; font-size: 1rem; line-height: 1.2; }
+.step-t { color: var(--muted); font-size: 0.85rem; }
+.esave { margin: 0; color: var(--muted); font-size: 0.8rem; min-height: 1.2em; }
+.eremove { margin: 0; font-size: 0.85rem; color: var(--muted); }
+.link.danger { color: var(--bad); }
+.mystat { margin: 0; }
+
+#toast {
+  position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 60; max-width: calc(100vw - 32px);
+  background: var(--ink); color: var(--bg); padding: 10px 16px; border-radius: 10px; font-size: 0.9rem;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .25);
+}
+#toast.warn { background: var(--bad); color: #fff; }
+
+/* Privacy page */
+.prose .card { max-width: 760px; margin: 0 auto; }
+.prose h2 { font-size: 1.1rem; margin: 18px 0 6px; }
+.prose h2:first-child { margin-top: 0; }
+.prose p, .prose li { font-size: 0.95rem; }
+.prose ul { padding-left: 20px; margin: 6px 0; }

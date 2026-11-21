@@ -257,19 +257,34 @@ MALD.enrich = async function (entries, kind, onProgress) {
 // so a saved list is dropped 30 days after it was loaded, and old title details are pruned.
 const KEEP_LIST = 30 * 24 * 3600 * 1000;
 
+// The last list viewed. When it's your own (signed in), it's kept once, under "mald:mine", and only pointed to here.
 MALD.save = function (data) {
-  try { localStorage.setItem("mald:last", JSON.stringify(data)); } catch { /* storage full or blocked */ }
+  const value = data && data.source === "mine" ? { ref: "mine", fetchedAt: data.fetchedAt } : data;
+  try { localStorage.setItem("mald:last", JSON.stringify(value)); } catch { /* storage full or blocked */ }
 };
 MALD.loadSaved = function () {
   let data = null;
   try { data = JSON.parse(localStorage.getItem("mald:last")); } catch { /* ignore */ }
-  if (data && !(Date.now() - data.fetchedAt < KEEP_LIST)) { MALD.forget(); return null; }
+  if (data && data.ref === "mine") return MALD.loadMine();
+  if (data && !(Date.now() - data.fetchedAt < KEEP_LIST)) { try { localStorage.removeItem("mald:last"); } catch { /* ignore */ } return null; }
+  return data;
+};
+// Your own list (signed in), kept separately so switching between yours and someone else's is instant.
+MALD.saveMine = function (data) {
+  try {
+    if (data) localStorage.setItem("mald:mine", JSON.stringify(data)); else localStorage.removeItem("mald:mine");
+  } catch { /* storage full or blocked */ }
+};
+MALD.loadMine = function () {
+  let data = null;
+  try { data = JSON.parse(localStorage.getItem("mald:mine")); } catch { /* ignore */ }
+  if (data && !(Date.now() - data.fetchedAt < KEEP_LIST)) { MALD.saveMine(null); return null; }
   return data;
 };
 // Removes the saved list and all cached title details from this browser.
 MALD.forget = function () {
   try {
-    ["mald:last", "mald:details:anime", "mald:details:manga", "mald:links:anime", "mald:links:manga", "mald:pace", "mald:fullsweep"].forEach((k) => localStorage.removeItem(k));
+    ["mald:last", "mald:mine", "mald:details:anime", "mald:details:manga", "mald:links:anime", "mald:links:manga", "mald:pace", "mald:fullsweep"].forEach((k) => localStorage.removeItem(k));
   } catch { /* ignore */ }
 };
 MALD.pruneDetails = function () {
@@ -291,6 +306,7 @@ MALD.pruneDetails = function () {
 /* ---------- shared with recs.js ---------- */
 
 MALD.relay = relay;
+MALD.entryFromApi = entryFromApi;
 MALD.detailsFromNode = detailsFromNode;
 MALD.makeEntry = makeEntry;
 MALD.DETAILS_TTL = DETAILS_TTL;
