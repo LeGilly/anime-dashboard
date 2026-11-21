@@ -129,7 +129,7 @@
   //  favs:   your top favorites (their MAL recommendations feed "Recommended for you"); checked first
   //  auto:   titles likely to matter for sequels, checked automatically in the background (up to MAX_AUTO):
   //          finished or updated in the last 2 years, rated above your average, or rewatched
-  //  others: everything else you've finished or are watching; only checked when asked to
+  //  others: everything else you've finished or are watching; not checked (only counted)
   MALD.recSeeds = function (entries) {
     const P = signals(entries);
     const favs = favorites(entries, P).map((e) => e.id);

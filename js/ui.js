@@ -423,10 +423,8 @@
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
   // Next up: check your favorites first and show results, then check likely titles for sequels in the background,
-  // at a steady pace (about one request to MyAnimeList every few seconds). Other titles only when asked to.
+  // at a steady pace (about one request to MyAnimeList every few seconds). Other titles aren't checked.
   // If MyAnimeList asks to slow down at any point, stop contacting it, show what's saved, and resume after a break.
-  const sweepKey = (kind) => `${kind}:${((S.data && S.data.user) || "").toLowerCase()}`;
-  const fullSweep = (kind) => !!MALD.readCache("mald:fullsweep")[sweepKey(kind)];
 
   async function loadRecs(kind, entries) {
     const st = (S.recData[kind] = { status: "loading", done: 0, total: 0 });
@@ -437,16 +435,13 @@
       return;
     }
     const seeds = MALD.recSeeds(entries);
-    const full = fullSweep(kind);
-    const inScope = [...seeds.favs, ...seeds.auto, ...(full ? seeds.others : [])];
-    const plan = MALD.planLinks(kind, [...seeds.favs, ...seeds.auto, ...seeds.others]);
+    const inScope = [...seeds.favs, ...seeds.auto];
+    const plan = MALD.planLinks(kind, inScope);
     const scope = new Set(inScope);
     const missing = new Set(plan.missing);
     const first = seeds.favs.filter((id) => missing.has(id));
     const queue = [...inScope.filter((id) => missing.has(id) && !first.includes(id)), ...plan.stale.filter((id) => scope.has(id))];
-    // Titles not checked yet and not in the automatic scope: offered behind a button.
-    const othersLeft = full ? 0 : seeds.others.filter((id) => !plan.links.has(id)).length;
-    Object.assign(st, { autoCount: seeds.auto.length, othersLeft, full });
+    st.others = seeds.others.length;
     let slow = MALD.pace.coolingFor() > 0; // still on a break from last time
     let error = null;
     const stop = (err) => { if (MALD.isSlowdown(err.message)) { MALD.pace.slowDown(); slow = true; } else error = err.message; };
@@ -577,14 +572,10 @@
       <button type="button" data-act="rretry">Try again now</button>
     </div>`;
   }
-  // Under "Continue a series": which titles were checked, and a button to check the rest.
+  // Under "Continue a series": which titles are checked for sequels (only shown when some aren't).
   function sweepNote(st) {
-    if (st.full || !st.othersLeft) return "";
-    const mins = Math.ceil((st.othersLeft * 1.3 * MALD.pace.get().pause) / 60000);
-    const time = mins < 60 ? `about ${mins} minute${mins === 1 ? "" : "s"}` : `about ${Math.round(mins / 6) / 10} hours`;
-    return ` Checked automatically: your favorites, and titles you finished or updated in the last 2 years, rated above your average or rewatched.</p>
-      <p class="sweep"><button type="button" class="mbtn" data-act="sweep">Check my other ${MALD.fmtNum(st.othersLeft)} titles too</button>
-      <span class="hint">Takes ${time} in the background, to go easy on MyAnimeList. Progress is saved if you close the page.</span>`;
+    if (!st.others) return "";
+    return " Only your favorites, and titles you finished or updated in the last 2 years, rated above your average or rewatched, are checked.";
   }
 
   function updateBgNote(kind) {
@@ -933,14 +924,6 @@
       else if (t.dataset.act === "rmore") { S.next.shown += 12; render(); }
       else if (t.dataset.act === "cmore") { S.next.contShown += 12; render(); }
       else if (t.dataset.act === "smore") { S.next.soonShown += 12; render(); }
-      else if (t.dataset.act === "sweep") {
-        const all = MALD.readCache("mald:fullsweep");
-        all[sweepKey(S.kind)] = true;
-        MALD.writeCache("mald:fullsweep", all);
-        const old = S.recData[S.kind];
-        if (old) clearTimeout(old.resumeTimer);
-        delete S.recData[S.kind]; render();
-      }
       else if (t.dataset.act === "rretry") {
         const old = S.recData[S.kind];
         if (old) clearTimeout(old.resumeTimer);

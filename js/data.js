@@ -274,6 +274,7 @@ MALD.forget = function () {
 };
 MALD.pruneDetails = function () {
   const now = Date.now();
+  try { localStorage.removeItem("mald:fullsweep"); } catch { /* ignore */ }
   for (const kind of ["anime", "manga"]) {
     const cache = detailsCache(kind);
     let changed = false;
