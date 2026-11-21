@@ -3,10 +3,11 @@
 (function () {
   const MALD = window.MALD;
 
-  // Seconds spent on an entry, counting rewatches. Anime only (manga has no length).
-  MALD.secondsSpent = (e) => (e.kind === "anime" ? (e.progress + e.timesRepeated * e.total) * e.duration : 0);
   // Episodes / chapters consumed, counting rewatches and rereads.
-  MALD.unitsDone = (e) => e.progress + e.timesRepeated * e.total;
+  // During a rewatch, progress is the rewatch's progress, so the first full watch is added.
+  MALD.unitsDone = (e) => e.progress + (e.timesRepeated + (e.repeating ? 1 : 0)) * e.total;
+  // Seconds spent on an entry. Anime only (manga has no length).
+  MALD.secondsSpent = (e) => (e.kind === "anime" ? MALD.unitsDone(e) * e.duration : 0);
   MALD.remaining = (e) => (e.total ? Math.max(0, e.total - e.progress) : null);
 
   MALD.summary = function (entries) {
@@ -48,7 +49,7 @@
     const years = new Map();
     let undated = 0;
     for (const e of entries) {
-      if (e.status !== "completed") continue;
+      if (e.status !== "completed" && !e.repeating) continue;
       const m = /^(\d{4})(?:-(\d{2}))?/.exec(e.myFinish || "");
       if (!m) { undated++; continue; }
       const y = Number(m[1]);

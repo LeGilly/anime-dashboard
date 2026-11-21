@@ -69,13 +69,16 @@ function detailsFromNode(n, kind) {
 }
 
 function makeEntry(base) {
-  return Object.assign({
+  const e = Object.assign({
     id: 0, kind: "anime", title: "", titleEn: "", image: "", imageLarge: "", mediaType: "",
     genres: [], creators: [], year: null, season: "", mean: null, airStatus: "", airStart: "",
     total: 0, totalVol: 0, duration: 0, nsfw: "white", members: 0,
     status: "planned", score: 0, progress: 0, progressVol: 0, repeating: false, timesRepeated: 0,
     myStart: "", myFinish: "", updatedAt: "", enriched: false,
   }, base);
+  // MAL keeps rewatches and rereads as "completed"; show them with what you're watching, like MAL does.
+  if (e.repeating && e.status === "completed") e.status = "current";
+  return e;
 }
 
 function entryFromApi(item, kind) {
@@ -174,6 +177,7 @@ MALD.readExportFile = async function (file) {
     total: num(get(el, "manga_chapters")), totalVol: num(get(el, "manga_volumes")),
     status: status(get(el, "my_status")), score: num(get(el, "my_score")),
     progress: num(get(el, "my_read_chapters")), progressVol: num(get(el, "my_read_volumes")),
+    repeating: get(el, "my_rereading") === "1",
     timesRepeated: num(get(el, "my_times_read")),
     myStart: date(get(el, "my_start_date")), myFinish: date(get(el, "my_finish_date")),
   }));

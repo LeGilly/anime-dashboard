@@ -30,7 +30,10 @@
   const titleOf = (e) => (S.prefs.english && e.titleEn ? e.titleEn : e.title);
   const unitName = (n) => (S.kind === "manga" ? (n === 1 ? "chapter" : "chapters") : n === 1 ? "episode" : "episodes");
   const malUrl = (e) => `https://myanimelist.net/${e.kind}/${e.id}`;
-  const hidden18 = (e) => S.prefs.blur && e.nsfw === "black";
+  // MAL marks hentai as "gray" (not only "black"), so blur anything not marked safe, plus Hentai or Erotica genres.
+  const ADULT = ["Hentai", "Erotica"];
+  const hidden18 = (e) => S.prefs.blur && ((e.nsfw && e.nsfw !== "white") || e.genres.some((g) => ADULT.includes(g)));
+  const statusText = (e) => (e.repeating ? (e.kind === "manga" ? "Rereading" : "Rewatching") : MALD.statusLabel(e.status, e.kind));
 
   function setStatus(text, kind) {
     const el = $("status");
@@ -185,7 +188,7 @@
   }
 
   function tile(e) {
-    const status = MALD.statusLabel(e.status, e.kind);
+    const status = statusText(e);
     const meta = [e.mediaType, e.year].filter(Boolean).join(" · ");
     const prog = e.status === "completed" || e.status === "planned" ? "" : ` · ${progressText(e)}`;
     return `<button class="tile st-${e.status}" data-id="${e.id}" title="${esc(titleOf(e))}">
@@ -200,7 +203,7 @@
     return `<button class="row" data-id="${e.id}" role="row">
       ${cover(e, "thumb")}
       <span class="r-title"><strong>${esc(titleOf(e))}</strong><small>${esc([e.mediaType, e.year, e.creators.slice(0, 2).join(", ")].filter(Boolean).join(" · "))}</small></span>
-      <span class="pill"><i class="dot st-${e.status}"></i>${esc(MALD.statusLabel(e.status, e.kind))}</span>
+      <span class="pill"><i class="dot st-${e.status}"></i>${esc(statusText(e))}</span>
       <span class="r-prog">${progressText(e)}<span class="pbar"><i data-w="${pct(e).toFixed(1)}"></i></span></span>
       <span class="r-score" title="Your score">${e.score ? "★ " + e.score : "–"}</span>
       <span class="r-mean" title="MAL score">${e.mean ? e.mean.toFixed(2) : ""}</span>
@@ -242,7 +245,7 @@
         ${cover(e, "thumb")}
         <span class="p-body">
           <strong>${esc(titleOf(e))}</strong>
-          <span class="p-line">${anime ? "Ep" : "Ch"} ${progressText(e)}${e.kind === "manga" && e.totalVol ? ` · Vol ${e.progressVol}/${e.totalVol}` : ""}${airing ? ` <span class="tag">${anime ? "Airing" : "Publishing"}</span>` : ""}${note ? ` <span class="tag warn">${esc(note)}</span>` : ""}</span>
+          <span class="p-line">${anime ? "Ep" : "Ch"} ${progressText(e)}${e.kind === "manga" && e.totalVol ? ` · Vol ${e.progressVol}/${e.totalVol}` : ""}${e.repeating ? ` <span class="tag">${anime ? "Rewatching" : "Rereading"}</span>` : ""}${airing ? ` <span class="tag">${anime ? "Airing" : "Publishing"}</span>` : ""}${note ? ` <span class="tag warn">${esc(note)}</span>` : ""}</span>
           <span class="pbar"><i data-w="${pct(e).toFixed(1)}"></i></span>
           <small>${esc(bits.join(" · "))}</small>
         </span>
@@ -401,7 +404,7 @@
     const anime = e.kind === "anime";
     const dl = (pairs) => pairs.filter((p) => p[1] !== "" && p[1] != null).map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("");
     const mine = dl([
-      ["Status", `<span class="pill"><i class="dot st-${e.status}"></i>${esc(MALD.statusLabel(e.status, e.kind))}</span>${e.repeating ? ` <span class="tag">${anime ? "Rewatching" : "Rereading"}</span>` : ""}`],
+      ["Status", `<span class="pill"><i class="dot st-${e.status}"></i>${esc(statusText(e))}</span>`],
       ["Your score", e.score ? `★ ${e.score}` : "Not scored"],
       [anime ? "Episodes" : "Chapters", `${progressText(e)}`],
       ["Volumes", !anime && e.totalVol ? `${e.progressVol}/${e.totalVol}` : ""],
