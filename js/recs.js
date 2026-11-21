@@ -14,16 +14,17 @@
     alternative_version: "Another version of", parent_story: "Main story of", full_story: "Full story of",
   };
   const DONE = ["completed", "current", "on_hold", "dropped"]; // already started: never suggested
-  MALD.FIRST_PASS = 250;     // titles checked before showing results; the rest are checked in the background
-  MALD.BG_PAUSE = 3000;      // starting pause between background checks (ms), to go easy on MyAnimeList
-  MALD.MAX_PAUSE = 30000;    // slowest pace after repeated slowdowns
+  MALD.REQ_PAUSE = 3000;     // background pace: about one request to MyAnimeList every 3 seconds
+  MALD.MAX_PAUSE = 12000;    // slowest pace after repeated slowdowns (one request every 12 seconds)
+  MALD.MAX_AUTO = 300;       // titles checked for sequels automatically (beyond favorites)
+  MALD.FIRST_DETAILS = 80;   // suggested titles looked up before showing results; the rest follow in the background
   MALD.isSlowdown = (msg) => /limiting|too long|busy/i.test(msg || "");
 
   // Remembered between visits (not list data): when MyAnimeList last asked to slow down, and how fast to go.
   MALD.pace = {
     get() {
       const p = MALD.readCache("mald:pace");
-      return { until: p.until || 0, pause: Math.max(MALD.BG_PAUSE, p.pause || MALD.BG_PAUSE) };
+      return { until: p.until || 0, pause: Math.max(MALD.REQ_PAUSE, p.pause || MALD.REQ_PAUSE) };
     },
     // Slowed down: wait 5 minutes (10 if it happens again soon), and halve the speed.
     slowDown() {
@@ -34,7 +35,7 @@
     // A full run went fine: speed back up a little.
     relax() {
       const p = MALD.pace.get();
-      MALD.writeCache("mald:pace", { until: 0, pause: Math.max(MALD.BG_PAUSE, Math.round(p.pause * 0.75)) });
+      MALD.writeCache("mald:pace", { until: 0, pause: Math.max(MALD.REQ_PAUSE, Math.round(p.pause * 0.75)) });
     },
     // "Try again now": skip the wait, keep the slower speed.
     skipWait() {
@@ -44,7 +45,7 @@
     coolingFor() { return Math.max(0, MALD.pace.get().until - Date.now()); },
   };
   const MAX_FAVORITES = 25;  // titles whose recommendations count
-  const MAX_REC_DETAILS = 120; // recommended titles outside your list whose details are looked up
+  const MAX_REC_DETAILS = 60;  // recommended titles outside your list whose details are looked up
 
   MALD.isAdult = (e) => (e.nsfw && e.nsfw !== "white") || e.genres.some((g) => ADULT.includes(g));
   MALD.isUpcoming = (e) => UPCOMING.includes(e.airStatus);
@@ -124,12 +125,24 @@
       .slice(0, MAX_FAVORITES);
   }
 
-  // Titles whose MAL recommendations and related titles we look up.
+  // Titles whose MAL recommendations and related titles we look up, in three groups:
+  //  favs:   your top favorites (their MAL recommendations feed "Recommended for you"); checked first
+  //  auto:   titles likely to matter for sequels, checked automatically in the background (up to MAX_AUTO):
+  //          finished or updated in the last 2 years, rated above your average, or rewatched
+  //  others: everything else you've finished or are watching; only checked when asked to
   MALD.recSeeds = function (entries) {
-    const favs = favorites(entries, signals(entries));
-    const rest = entries.filter((e) => e.status === "completed" || e.status === "current")
-      .sort((a, b) => b.score - a.score || (b.updatedAt || "").localeCompare(a.updatedAt || ""));
-    return [...new Set([...favs, ...rest].map((e) => e.id))];
+    const P = signals(entries);
+    const favs = favorites(entries, P).map((e) => e.id);
+    const favSet = new Set(favs);
+    const since = new Date(Date.now() - 2 * 365 * 24 * 3600 * 1000).toISOString().slice(0, 10);
+    const recent = (e) => (e.myFinish || e.updatedAt || "").slice(0, 10) >= since;
+    const likely = (e) => recent(e) || (e.score && e.score > P.mean) || repeated(e);
+    const order = (a, b) => b.score - a.score || (b.myFinish || b.updatedAt || "").localeCompare(a.myFinish || a.updatedAt || "");
+    const rest = entries.filter((e) => (e.status === "completed" || e.status === "current") && !favSet.has(e.id)).sort(order);
+    const auto = rest.filter(likely).slice(0, MALD.MAX_AUTO).map((e) => e.id);
+    const autoSet = new Set(auto);
+    const others = rest.filter((e) => !autoSet.has(e.id)).map((e) => e.id);
+    return { favs, auto, others };
   };
 
   /* ---------- fetching (cached in the browser) ---------- */

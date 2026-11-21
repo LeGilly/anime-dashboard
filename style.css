@@ -392,3 +392,5 @@ footer a { color: inherit; }
 }
 @media (prefers-color-scheme: dark) { .notice.warn { background: rgba(185, 138, 18, 0.14); } }
 @media (max-width: 560px) { .notice { flex-wrap: wrap; } .notice button { width: 100%; } }
+.sweep { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin: 8px 0 0; }
+.sweep .hint { margin: 0; }

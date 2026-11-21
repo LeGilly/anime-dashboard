@@ -100,11 +100,11 @@ function slimLinks(type) {
   });
 }
 
-// Looks up several titles, two at a time so MAL isn't hit with them all at once.
+// Looks up several titles one after another, so MAL never gets them all at once.
 async function getMany(env, type, ids, fields, shape) {
   const items = [];
-  for (let i = 0; i < ids.length; i += 2) {
-    const batch = ids.slice(i, i + 2);
+  for (let i = 0; i < ids.length; i += 1) {
+    const batch = ids.slice(i, i + 1);
     items.push(...await Promise.all(batch.map(async (id) => {
       try {
         return shape(await mal(env, `${MAL}/${type}/${id}?nsfw=true&fields=${fields}`));

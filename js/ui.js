@@ -422,8 +422,12 @@
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-  // Next up: check the most important titles first and show results, then check the rest in the background.
+  // Next up: check your favorites first and show results, then check likely titles for sequels in the background,
+  // at a steady pace (about one request to MyAnimeList every few seconds). Other titles only when asked to.
   // If MyAnimeList asks to slow down at any point, stop contacting it, show what's saved, and resume after a break.
+  const sweepKey = (kind) => `${kind}:${((S.data && S.data.user) || "").toLowerCase()}`;
+  const fullSweep = (kind) => !!MALD.readCache("mald:fullsweep")[sweepKey(kind)];
+
   async function loadRecs(kind, entries) {
     const st = (S.recData[kind] = { status: "loading", done: 0, total: 0 });
     const label = kind === "anime" ? "anime" : "manga";
@@ -433,77 +437,99 @@
       return;
     }
     const seeds = MALD.recSeeds(entries);
-    const plan = MALD.planLinks(kind, seeds);
-    const top = new Set(seeds.slice(0, MALD.FIRST_PASS));
-    const first = plan.missing.filter((id) => top.has(id));
-    const todo = [...first, ...plan.missing.filter((id) => !top.has(id)), ...plan.stale];
-    const done = new Set();
+    const full = fullSweep(kind);
+    const inScope = [...seeds.favs, ...seeds.auto, ...(full ? seeds.others : [])];
+    const plan = MALD.planLinks(kind, [...seeds.favs, ...seeds.auto, ...seeds.others]);
+    const scope = new Set(inScope);
+    const missing = new Set(plan.missing);
+    const first = seeds.favs.filter((id) => missing.has(id));
+    const queue = [...inScope.filter((id) => missing.has(id) && !first.includes(id)), ...plan.stale.filter((id) => scope.has(id))];
+    // Titles not checked yet and not in the automatic scope: offered behind a button.
+    const othersLeft = full ? 0 : seeds.others.filter((id) => !plan.links.has(id)).length;
+    Object.assign(st, { autoCount: seeds.auto.length, othersLeft, full });
     let slow = MALD.pace.coolingFor() > 0; // still on a break from last time
     let error = null;
-    const pace = MALD.pace.get().pause;
     const stop = (err) => { if (MALD.isSlowdown(err.message)) { MALD.pace.slowDown(); slow = true; } else error = err.message; };
 
-    if (!slow) {
+    // First pass (quick): favorites, then details for the best suggestions.
+    if (!slow && first.length) {
       st.total = first.length;
       try {
         for (let i = 0; i < first.length; i += 25) {
-          if (i) await sleep(Math.min(pace, 1500));
-          const chunk = first.slice(i, i + 25);
-          await MALD.fetchLinks(plan, chunk);
-          chunk.forEach((id) => done.add(id));
-          st.done = done.size;
+          await MALD.fetchLinks(plan, first.slice(i, i + 25));
+          st.done = Math.min(first.length, i + 25);
           const el = $("recProgress");
-          if (el) el.textContent = `Looking at your ${label} on MyAnimeList… ${st.done}/${st.total}`;
+          if (el) el.textContent = `Looking at your favorite ${label} on MyAnimeList… ${st.done}/${st.total}`;
         }
       } catch (err) { stop(err); }
     }
-    if (!slow && !error) {
-      const el = $("recProgress");
-      if (el) el.textContent = "Looking up suggested titles…";
+    if (!slow && !error) { const el = $("recProgress"); if (el) el.textContent = "Looking up suggested titles…"; }
+    const wanted = MALD.recDetailIds(entries, plan.links);
+    let det = await MALD.loadDetails(kind, wanted, { offline: true });
+    const needed = wanted.filter((id) => !det.details.has(id));
+    if (!slow && !error && needed.length) {
+      const more = await MALD.loadDetails(kind, needed.slice(0, MALD.FIRST_DETAILS));
+      for (const [id, d] of more.details) det.details.set(id, d);
+      if (more.error) stop({ message: more.error });
     }
-    const det = await MALD.loadDetails(kind, MALD.recDetailIds(entries, plan.links), { offline: slow || !!error, pause: Math.min(pace, 1500) });
-    if (det.error) stop({ message: det.error });
-    const left = todo.filter((id) => !done.has(id));
+    const left = queue;
     Object.assign(st, { status: "ready", links: plan.links, details: det.details, error,
-      bg: { done: 0, total: left.length, running: !slow && !error && left.length > 0, slow } });
+      bg: { done: 0, total: left.length, running: !slow && !error, slow } });
     refreshNext(kind, entries);
     if (st.bg.running) checkInBackground(kind, entries, st, plan, left);
     else if (slow) resumeLater(kind, st);
   }
 
+  // Background: sequel checks and the details they need, a few titles at a time, at a steady pace.
   async function checkInBackground(kind, entries, st, plan, ids) {
+    const paced = async (count, work) => {
+      const t0 = Date.now();
+      await work();
+      await sleep(Math.max(0, count * MALD.pace.get().pause - (Date.now() - t0)));
+    };
+    const slowedDown = (msg) => {
+      st.bg.running = false;
+      if (MALD.isSlowdown(msg)) { MALD.pace.slowDown(); st.bg.slow = true; resumeLater(kind, st); }
+      else st.error = msg;
+      st.bg.total -= st.bg.done; st.bg.done = 0;
+      refreshNext(kind, entries);
+    };
+    // Details still missing for suggestions found so far, fetched 5 at a time.
+    const fillDetails = async () => {
+      const missing = MALD.recDetailIds(entries, plan.links).filter((id) => !st.details.has(id));
+      for (let i = 0; i < missing.length; i += 5) {
+        if (S.recData[kind] !== st) return false;
+        let res;
+        await paced(Math.min(5, missing.length - i), async () => { res = await MALD.loadDetails(kind, missing.slice(i, i + 5)); });
+        for (const [id, d] of res.details) st.details.set(id, d);
+        if (res.error) { slowedDown(res.error); return false; }
+      }
+      return true;
+    };
+    if (!(await fillDetails())) return;
     let sinceUpdate = 0;
-    for (let i = 0; i < ids.length; i += 25) {
-      await sleep(MALD.pace.get().pause);
+    for (let i = 0; i < ids.length; i += 5) {
       if (S.recData[kind] !== st) return; // another list was loaded meanwhile
-      const chunk = ids.slice(i, i + 25);
+      const chunk = ids.slice(i, i + 5);
       try {
-        await MALD.fetchLinks(plan, chunk);
+        await paced(chunk.length, () => MALD.fetchLinks(plan, chunk));
       } catch (err) {
-        st.bg.running = false;
-        if (MALD.isSlowdown(err.message)) { MALD.pace.slowDown(); st.bg.slow = true; resumeLater(kind, st); }
-        else st.error = err.message;
-        st.bg.total -= st.bg.done; st.bg.done = 0;
-        refreshNext(kind, entries);
+        slowedDown(err.message);
         return;
       }
-      st.bg.done = Math.min(ids.length, i + 25);
+      st.bg.done = Math.min(ids.length, i + 5);
       sinceUpdate += chunk.length;
       updateBgNote(kind);
       const last = st.bg.done >= ids.length;
-      if (sinceUpdate >= 150 || last) {
+      if (sinceUpdate >= 25 || last) {
         sinceUpdate = 0;
-        const det = await MALD.loadDetails(kind, MALD.recDetailIds(entries, plan.links), { pause: 1500 });
-        for (const [id, d] of det.details) st.details.set(id, d);
-        if (det.error && MALD.isSlowdown(det.error)) {
-          MALD.pace.slowDown(); st.bg.running = false; st.bg.slow = true;
-          st.bg.total -= st.bg.done; st.bg.done = 0;
-          resumeLater(kind, st); refreshNext(kind, entries); return;
-        }
-        if (last) { st.bg.running = false; MALD.pace.relax(); }
+        if (!(await fillDetails())) return;
         refreshNext(kind, entries);
       }
     }
+    st.bg.running = false;
+    if (ids.length) MALD.pace.relax();
+    refreshNext(kind, entries);
   }
 
   // After a break, start again by itself if the page is still open (saved checks are reused).
@@ -527,7 +553,8 @@
 
   function bgNoteText(st) {
     const label = S.kind === "anime" ? "anime" : "manga";
-    if (st.bg && st.bg.running) return `Checking your other ${label} for sequels… ${MALD.fmtNum(st.bg.done)}/${MALD.fmtNum(st.bg.total)}. Results update as it goes.`;
+    if (st.bg && st.bg.running && st.bg.total) return `Checking your ${label} for sequels… ${MALD.fmtNum(st.bg.done)}/${MALD.fmtNum(st.bg.total)}. Results update as it goes.`;
+    if (st.bg && st.bg.running) return "Looking up suggested titles…";
     return "";
   }
   // One warning banner for anything that stopped the checks: a MyAnimeList slowdown, or another error.
@@ -550,6 +577,16 @@
       <button type="button" data-act="rretry">Try again now</button>
     </div>`;
   }
+  // Under "Continue a series": which titles were checked, and a button to check the rest.
+  function sweepNote(st) {
+    if (st.full || !st.othersLeft) return "";
+    const mins = Math.ceil((st.othersLeft * 1.3 * MALD.pace.get().pause) / 60000);
+    const time = mins < 60 ? `about ${mins} minute${mins === 1 ? "" : "s"}` : `about ${Math.round(mins / 6) / 10} hours`;
+    return ` Checked automatically: your favorites, and titles you finished or updated in the last 2 years, rated above your average or rewatched.</p>
+      <p class="sweep"><button type="button" class="mbtn" data-act="sweep">Check my other ${MALD.fmtNum(st.othersLeft)} titles too</button>
+      <span class="hint">Takes ${time} in the background, to go easy on MyAnimeList. Progress is saved if you close the page.</span>`;
+  }
+
   function updateBgNote(kind) {
     const el = $("recBg");
     const st = S.recData[kind];
@@ -656,7 +693,7 @@
       <p class="hint center${st.bg && st.bg.running ? " busy" : ""}" id="recBg"${bgNoteText(st) ? "" : " hidden"}>${esc(bgNoteText(st))}</p>
       ${pausedBanner(st)}
       ${S.prefs.blur ? `<p class="hint center">18+ titles are left out while "Blur 18+ covers" is on in Settings.</p>` : ""}
-      ${section("Continue a series", `Sequels to ${anime ? "shows" : "series"} you finished.`, res.cont, "No sequels waiting for you with these filters.", { limit: N.contShown, more: "cmore", extra: "" })}
+      ${section("Continue a series", `Sequels to ${anime ? "shows" : "series"} you finished.${sweepNote(st)}`, res.cont, "No sequels waiting for you with these filters.", { limit: N.contShown, more: "cmore", extra: "" })}
       ${section("Recommended for you", "Based on what you rate highly, and what MyAnimeList users recommend from your favorites.", res.recommended, "Nothing matches these filters.", { limit: N.shown, more: "rmore" })}
       ${section("Coming up", `Related to ${anime ? "shows" : "series"} you've seen, or on your ${plan.toLowerCase()}: not out yet, or still ${anime ? "airing" : "ongoing"}.`, res.comingUp, "Nothing announced right now.", { limit: N.soonShown, more: "smore", extra: "soon" })}`;
   }
@@ -896,6 +933,14 @@
       else if (t.dataset.act === "rmore") { S.next.shown += 12; render(); }
       else if (t.dataset.act === "cmore") { S.next.contShown += 12; render(); }
       else if (t.dataset.act === "smore") { S.next.soonShown += 12; render(); }
+      else if (t.dataset.act === "sweep") {
+        const all = MALD.readCache("mald:fullsweep");
+        all[sweepKey(S.kind)] = true;
+        MALD.writeCache("mald:fullsweep", all);
+        const old = S.recData[S.kind];
+        if (old) clearTimeout(old.resumeTimer);
+        delete S.recData[S.kind]; render();
+      }
       else if (t.dataset.act === "rretry") {
         const old = S.recData[S.kind];
         if (old) clearTimeout(old.resumeTimer);

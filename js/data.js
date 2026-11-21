@@ -199,7 +199,7 @@ MALD.readExportFile = async function (file) {
 
 /* ---------- adding covers, genres, etc. to XML entries ---------- */
 
-const DETAILS_TTL = 14 * 24 * 3600 * 1000;
+const DETAILS_TTL = 30 * 24 * 3600 * 1000; // title details are re-checked monthly
 function detailsCache(kind) {
   try { return JSON.parse(localStorage.getItem(`mald:details:${kind}`)) || {}; } catch { return {}; }
 }
@@ -269,7 +269,7 @@ MALD.loadSaved = function () {
 // Removes the saved list and all cached title details from this browser.
 MALD.forget = function () {
   try {
-    ["mald:last", "mald:details:anime", "mald:details:manga", "mald:links:anime", "mald:links:manga", "mald:pace"].forEach((k) => localStorage.removeItem(k));
+    ["mald:last", "mald:details:anime", "mald:details:manga", "mald:links:anime", "mald:links:manga", "mald:pace", "mald:fullsweep"].forEach((k) => localStorage.removeItem(k));
   } catch { /* ignore */ }
 };
 MALD.pruneDetails = function () {
@@ -277,12 +277,12 @@ MALD.pruneDetails = function () {
   for (const kind of ["anime", "manga"]) {
     const cache = detailsCache(kind);
     let changed = false;
-    for (const id in cache) if (!(now - cache[id][0] < DETAILS_TTL)) { delete cache[id]; changed = true; }
+    for (const id in cache) if (!(now - cache[id][0] < 2 * DETAILS_TTL)) { delete cache[id]; changed = true; }
     if (changed) saveDetailsCache(kind, cache);
     const links = MALD.readCache(`mald:links:${kind}`);
     let linksChanged = false;
-    // Checks older than a week are refreshed in the background but still used meanwhile; after 30 days they're dropped.
-    for (const id in links) if (!(now - links[id][0] < 30 * 24 * 3600 * 1000)) { delete links[id]; linksChanged = true; }
+    // Checks older than a month are refreshed in the background but still used meanwhile; after 60 days they're dropped.
+    for (const id in links) if (!(now - links[id][0] < 2 * MALD.LINKS_TTL)) { delete links[id]; linksChanged = true; }
     if (linksChanged) MALD.writeCache(`mald:links:${kind}`, links);
   }
 };
@@ -293,6 +293,6 @@ MALD.relay = relay;
 MALD.detailsFromNode = detailsFromNode;
 MALD.makeEntry = makeEntry;
 MALD.DETAILS_TTL = DETAILS_TTL;
-MALD.LINKS_TTL = 7 * 24 * 3600 * 1000;
+MALD.LINKS_TTL = 30 * 24 * 3600 * 1000; // sequel checks are refreshed monthly
 MALD.readCache = (key) => { try { return JSON.parse(localStorage.getItem(key)) || {}; } catch { return {}; } };
 MALD.writeCache = (key, value) => { try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* storage full or blocked */ } };
