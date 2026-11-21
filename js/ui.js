@@ -691,6 +691,23 @@
 
   /* ---------- detail panel ---------- */
 
+  // While the panel is open, the page behind it must not scroll (phones ignore overflow: hidden alone),
+  // so the page is pinned where it was and put back exactly there when the panel closes.
+  let lockedAt = null;
+  function lockPage() {
+    if (lockedAt !== null) return;
+    lockedAt = window.scrollY;
+    document.body.style.top = `-${lockedAt}px`;
+    document.body.classList.add("locked");
+  }
+  function unlockPage() {
+    if (lockedAt === null) return;
+    document.body.classList.remove("locked");
+    document.body.style.top = "";
+    window.scrollTo(0, lockedAt);
+    lockedAt = null;
+  }
+
   function openDetail(id) {
     const e = (list() || []).find((x) => String(x.id) === String(id)) || S.recPool.get(Number(id));
     if (!e) return;
@@ -730,7 +747,9 @@
           <p><a class="btn" href="${malUrl(e)}" target="_blank" rel="noopener">Open on MyAnimeList</a></p>
         </div>
       </div>`;
+    lockPage();
     $("detail").showModal();
+    $("detail").scrollTop = 0;
   }
 
   /* ---------- loading ---------- */
@@ -952,6 +971,7 @@
     document.addEventListener("keydown", (ev) => { if (ev.key === "Escape") closeMulti(); });
 
     const dlg = $("detail");
+    dlg.addEventListener("close", unlockPage);
     dlg.addEventListener("click", (ev) => {
       if (ev.target === dlg || ev.target.closest("[data-act=close]")) dlg.close();
     });
