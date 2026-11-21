@@ -4,7 +4,7 @@
 // web page (no CORS). This Worker keeps the Client ID secret and adds the CORS headers.
 // It only reads public data: it never logs in and can't change anyone's list.
 //
-// Setup: see README.md in this folder. It needs one secret, MAL_CLIENT_ID.
+// It needs one secret, MAL_CLIENT_ID, set in the Worker's settings on Cloudflare.
 //
 // Endpoints (GET only):
 //   /list?user=NAME&type=anime|manga      -> { user, type, items: [ {node, list_status}, ... ] }
@@ -25,6 +25,11 @@ const MAX_IDS = 40;            // Cloudflare's free plan allows 50 outgoing requ
 const DETAIL_CACHE_S = 7 * 24 * 3600;
 
 const COMMON = "id,title,main_picture,alternative_titles,start_date,mean,media_type,status,genres,nsfw,num_list_users";
+// List fields are named explicitly: MAL leaves out the rewatch/reread count otherwise.
+const LIST_FIELDS = {
+  anime: "list_status{status,score,num_episodes_watched,is_rewatching,num_times_rewatched,start_date,finish_date,updated_at}",
+  manga: "list_status{status,score,num_chapters_read,num_volumes_read,is_rereading,num_times_reread,start_date,finish_date,updated_at}",
+};
 const FIELDS = {
   anime: COMMON + ",num_episodes,start_season,average_episode_duration,studios",
   manga: COMMON + ",num_volumes,num_chapters,authors{first_name,last_name}",
@@ -67,7 +72,7 @@ export default {
 
 async function getList(env, user, type) {
   const kind = type === "anime" ? "animelist" : "mangalist";
-  let next = `${MAL}/users/${encodeURIComponent(user)}/${kind}?limit=1000&nsfw=true&fields=list_status,${FIELDS[type]}`;
+  let next = `${MAL}/users/${encodeURIComponent(user)}/${kind}?limit=1000&nsfw=true&fields=${LIST_FIELDS[type]},${FIELDS[type]}`;
   const items = [];
   // A list of 1000 entries per page; 20 pages (20,000 entries) is far more than anyone has.
   for (let page = 0; next && page < 20; page++) {
