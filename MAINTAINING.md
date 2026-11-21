@@ -1,13 +1,9 @@
 # Maintaining Anime Dashboard
 
-Notes for whoever works on this repo (including AI assistants). The README describes the app; this file
-covers how it's built, released and why some things are the way they are.
-
-## How the owner works
-
-- Changes are committed and pushed by the owner with GitHub Desktop, from `Documents\GitHub\anime-dashboard`.
-  An assistant writes files into that folder and suggests a one-line commit summary; it doesn't commit.
-- Hub: https://legilly.com (repo `LeGilly.github.io`). Sibling projects: `ba-halo-game`, `irc-idlerpg-web`.
+> **Start with the hub's `MAINTAINING.md`** (repo `LeGilly.github.io`, or
+> https://github.com/LeGilly/LeGilly.github.io/blob/main/MAINTAINING.md): how the owner works, versions and
+> releases, the rules every site follows, and the shared navigation bar and colour themes.
+> This file only covers what's specific to Anime Dashboard.
 
 ## Layout
 
@@ -37,23 +33,21 @@ covers how it's built, released and why some things are the way they are.
 
 ## Releasing
 
-1. Version is major.minor.patch: patch = fixes and small visual changes, minor = a new feature,
-   major = a big change in what the app is or does.
-2. Set it in `index.html` (footer `vX.Y.Z` and every `?v=`) and in `privacy.html` (`?v=`), so browsers
-   fetch the fresh files.
-3. Add an entry at the top of `CHANGELOG.md` (`## X.Y.Z · YYYY-MM-DD`, one short line per change).
-4. If `worker/worker.js` changed, the owner must also redeploy it: Cloudflare → Workers & Pages →
-   `anime-dashboard` → Edit code → paste the file → Deploy. Pushing to GitHub does not update the relay.
-5. If anything stored in the browser, logged, or sent changes, update `privacy.html` to match.
+- Version: `index.html` (footer `vX.Y.Z` and every `?v=`) and `privacy.html` (`?v=`).
+- If `worker/worker.js` changed, the owner must also redeploy it: Cloudflare → Workers & Pages →
+  `anime-dashboard` → Edit code → paste the file → Deploy. Pushing to GitHub does not update the relay.
+- If anything stored in the browser, logged, or sent changes, update `privacy.html` to match.
 
 ## Constraints
 
 - **Content security policy** (meta tag in `index.html`): `script-src`/`style-src 'self' https://legilly.com`
   (the shared bar and themes), no inline scripts or styles, `connect-src https://api.legilly.com`. Sizes and positions that depend on data are set from JS
   (e.g. `data-w`/`data-h` attributes read by a script), never with `style="…"`. No third-party scripts.
-- **Relay origins:** `ACCOUNT_ORIGINS` (anime.legilly.com, localhost:8000, 127.0.0.1:8000) may sign in and
-  edit; `ALLOWED_ORIGINS` (also legilly.com) may use the public endpoints. Changing requests (PATCH,
-  DELETE, logout) must carry an allowed `Origin`.
+- **Relay origins:** `ORIGINS` in `worker.js` holds only https://anime.legilly.com. Every request must carry
+  that `Origin`, except the two sign-in steps the browser navigates to (`/auth/login`, `/auth/callback`);
+  sign-in can only return to it. Requests from other sites, localhost or plain scripts (no Origin) get 403.
+  Tests use a stand-in relay, so localhost isn't needed. Backed by a Cloudflare rate-limiting rule on
+  api.legilly.com (Security → WAF → Rate limiting rules; free plan: one rule, counted per IP over 10 s).
 - **Sign-in:** OAuth with PKCE "plain" (what MAL supports); the token exchange needs the client secret.
   Session in an AES-GCM encrypted cookie `mald_sess` (HttpOnly, Secure, SameSite=Strict, 60 days),
   which also stores the user's id and name so checking sign-in never calls MAL. A failed token refresh
@@ -95,6 +89,12 @@ sign-in), `mald:details:{kind}`, `mald:links:{kind}`, `mald:related:{kind}` (max
 links and related titles are refreshed after 30 days. **Settings → Forget this list** clears all of them
 (`MALD.forget` in `data.js`): add any new key there.
 
+Browsers allow about 5 MB per site, and a big list plus title details can get close. All saving goes through
+`store()` / `MALD.writeCache` in `data.js`: when storage is full, the oldest half of what can be fetched again
+(`PRUNABLE`: details, related titles, sequel checks; plus older log rows) is dropped and the save retried;
+lists are never dropped. The request log's second line shows how much is used per kind, and whether room had
+to be made. Save anything new through these functions, never with `localStorage.setItem` directly.
+
 ## Settled behaviour (decided with the owner)
 
 - Tabs: Search, Library, Progress, Next up, Stats. A loaded list (or a fresh sign-in) opens on Library.
@@ -121,32 +121,8 @@ There's no test suite in the repo. What has worked:
 - Check light and dark mode and a phone width (390 px). Native pop-ups like the date picker only show in a
   real (headful) browser, e.g. Chrome on a virtual screen (Xvfb) captured with a screenshot tool.
 
-## Shared code: navigation bar and colour themes
+## Shared bar and themes: what's specific here
 
-- One script and one stylesheet are shared by every legilly.com site. They live **only in the hub repo**
-  (`LeGilly.github.io/shared/site.js` and `site.css`) and every site loads them from
-  `https://legilly.com/shared/`, in `<head>` before its own stylesheet. A change there reaches every site
-  within about 10 minutes of pushing the hub (GitHub Pages cache), with no commit in the other repos.
-  So test a change on all four sites before pushing the hub: a mistake breaks every site at once.
-- Each page says which project it belongs to: `<html data-lg-project="home|anime|halo|idlerpg">`
-  (highlights it in the bar). `<html data-tp-dark-only>` keeps a site dark (IdleRPG).
-- **The bar** (top of every page, 46 px, `--lg-bar-h`): home icon → hub; **Games** and **Tools** menus
-  listing every project (current one highlighted); theme button on the right. The project list is
-  `GROUPS` at the top of `site.js`. The bar replaced every "← All projects" link: don't add back links.
-  Pages get `padding-top` for it from the start (`html.lg-bar-on`), so nothing jumps when it's drawn.
-- **Themes:** the script reads the `legilly_theme` cookie (`theme.mode`, e.g. `purple.dark`;
-  `Domain=legilly.com` so every subdomain shares it; localStorage elsewhere, e.g. localhost) and sets
-  `data-theme` (blue, purple, teal, amber, rose) and `data-mode` (light or dark, System resolved) on `<html>`
-  before the page draws. `site.css` defines `--bg --card --ink --muted --accent --accent-ink --line --tag
-  --track --shadow` per theme and mode; site stylesheets don't redefine these.
-- Text on an accent background uses `var(--accent-ink)`: white in light mode and for Blue in dark mode;
-  dark text on the lighter dark-mode accents of the other themes.
-- Dark-only rules are written as `:root[data-mode="dark"] …`, plus `@media (prefers-color-scheme: dark)
-  { :root:not([data-mode]) … }` as a fallback without the script.
-- How the palettes were made: the blue neutrals with only the hue rotated (same lightness, so the same
-  contrast); accents chosen by calculation, with at least the old blue's contrast and at least as far from the
-  dashboard's status colours as the blue is from "Plan to watch". Check any new theme the same way.
-- Security rules: sites on legilly.com allow `script-src`/`style-src` `'self' https://legilly.com`; Anime
-  Dashboard (anime.legilly.com) needs `https://legilly.com` listed for both.
-- Here: the status colours (`--st-*`, with dark variants) and `--good`/`--bad` are defined in `style.css`
-  and never change with the theme. `privacy.html` loads the shared files too.
+- The status colours (`--st-*`, with dark variants) and `--good`/`--bad` are defined in `style.css` and never
+  change with the theme. `privacy.html` loads the shared files too, and links back to the dashboard itself.
+- The security rule lists `https://legilly.com` for scripts and styles (the dashboard is on its own subdomain).

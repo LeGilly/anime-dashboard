@@ -450,7 +450,7 @@
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
   // Next up: check your favorites first and show results, then check likely titles for sequels in the background,
-  // at a steady pace (about one request to MyAnimeList every few seconds). Other titles aren't checked.
+  // at a steady pace (one title every 1.5 seconds, slower after a slowdown). Other titles aren't checked.
   // If MyAnimeList asks to slow down at any point, stop contacting it, show what's saved, and resume after a break.
 
   async function loadRecs(kind, entries) {

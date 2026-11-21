@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.5.2 · 2026-11-21
+- The relay only answers the dashboard itself (no other sites or scripts)
+- When the browser's storage is full, the oldest saved title details make room instead of saves silently failing; the request log shows storage use
+- Faster first load: connections to the relay and MyAnimeList's images open early
+
 ## 2.5.1 · 2026-11-21
 - Privacy notice: links back to the dashboard (top and bottom); mentions the shared colour theme cookie
 

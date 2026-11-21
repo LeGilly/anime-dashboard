@@ -23,17 +23,10 @@
 //   PATCH  /me/entry?type=...&id=N      -> body: JSON of list fields to change; returns MAL's list status
 //   DELETE /me/entry?type=...&id=N      -> removes the title from your list
 
-// Pages allowed to read public data from this relay.
-const ALLOWED_ORIGINS = [
-  "https://anime.legilly.com",
-  "https://legilly.com",
-  "https://www.legilly.com",
-  "https://legilly.github.io",
-  "http://localhost:8000",
-  "http://127.0.0.1:8000",
-];
-// Pages allowed to sign in and change lists.
-const ACCOUNT_ORIGINS = ["https://anime.legilly.com", "http://localhost:8000", "http://127.0.0.1:8000"];
+// The only page allowed to use this relay: the dashboard. Every request must come from it (Origin header),
+// except the two sign-in steps the browser navigates to (/auth/login, /auth/callback).
+// Scripts outside a browser can fake an Origin, so a Cloudflare rate-limiting rule on api.legilly.com backs this up.
+const ORIGINS = ["https://anime.legilly.com"];
 
 const MAL = "https://api.myanimelist.net/v2";
 const MAL_AUTH = "https://myanimelist.net/v1/oauth2";
@@ -72,7 +65,8 @@ export default {
     const cors = corsHeaders(origin, account);
 
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
-    if (origin && !(account ? ACCOUNT_ORIGINS : ALLOWED_ORIGINS).includes(origin)) return json({ error: "Origin not allowed." }, 403, cors);
+    const navigation = url.pathname === "/auth/login" || url.pathname === "/auth/callback";
+    if (!navigation && !ORIGINS.includes(origin)) return json({ error: "Origin not allowed." }, 403, cors);
     if (!env.MAL_CLIENT_ID) return json({ error: "The relay has no MAL_CLIENT_ID secret yet." }, 500, cors);
 
     try {
@@ -81,13 +75,12 @@ export default {
       if (url.pathname === "/auth/callback" && request.method === "GET") return await callback(request, env, url);
       if (url.pathname === "/auth/logout" && request.method === "POST") {
         // A changing request must come from the dashboard itself (blocks other sites forging it).
-        if (!ACCOUNT_ORIGINS.includes(origin)) return json({ error: "Origin not allowed." }, 403, cors);
+        if (!ORIGINS.includes(origin)) return json({ error: "Origin not allowed." }, 403, cors);
         return json({ ok: true }, 200, { ...cors, "Set-Cookie": cookie("mald_sess", "", 0, "Strict") });
       }
 
       // ---------- signed in ----------
       if (url.pathname.startsWith("/me")) {
-        if (request.method !== "GET" && !ACCOUNT_ORIGINS.includes(origin)) return json({ error: "Origin not allowed." }, 403, cors);
         const session = await getSession(request, env);
         if (!session) return json({ error: "You're not signed in, or your sign-in expired. Sign in again." }, 401, { ...cors, "Set-Cookie": cookie("mald_sess", "", 0, "Strict") });
         const extra = session.setCookie ? { "Set-Cookie": session.setCookie } : {};
@@ -260,7 +253,7 @@ async function login(request, env, url) {
   const back = url.searchParams.get("return") || "";
   let returnTo;
   try { returnTo = new URL(back); } catch { return json({ error: "Missing return address." }, 400); }
-  if (!ACCOUNT_ORIGINS.includes(returnTo.origin)) return json({ error: "That page can't sign in here." }, 403);
+  if (!ORIGINS.includes(returnTo.origin)) return json({ error: "That page can't sign in here." }, 403);
   if (!env.MAL_CLIENT_SECRET) return json({ error: "The relay has no MAL_CLIENT_SECRET secret yet." }, 500);
   // MAL only supports the "plain" PKCE method: the challenge is the verifier itself.
   const verifier = randomString(64);
@@ -278,7 +271,7 @@ async function login(request, env, url) {
 async function callback(request, env, url) {
   const pending = await unseal(env, readCookie(request, "mald_pkce"));
   const clearPending = cookie("mald_pkce", "", 0, "Lax", "/auth");
-  const fallback = ACCOUNT_ORIGINS[0] + "/";
+  const fallback = ORIGINS[0] + "/";
   const back = (to, outcome) => new Response(null, { status: 302, headers: [["Location", `${to}?signin=${outcome}`], ["Set-Cookie", clearPending]] });
   if (!pending) return back(fallback, "expired");
   if (url.searchParams.get("error")) return back(pending.r, "cancelled");
@@ -438,7 +431,7 @@ async function mal(env, url, { token, method = "GET", body } = {}) {
 }
 
 function corsHeaders(origin, account) {
-  if (!(account ? ACCOUNT_ORIGINS : ALLOWED_ORIGINS).includes(origin)) return { Vary: "Origin" };
+  if (!ORIGINS.includes(origin)) return { Vary: "Origin" };
   const h = { "Access-Control-Allow-Origin": origin, "Access-Control-Allow-Methods": "GET, OPTIONS", Vary: "Origin" };
   if (account) Object.assign(h, {
     "Access-Control-Allow-Credentials": "true",

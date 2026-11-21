@@ -173,7 +173,7 @@ function logRequest(job, t0, result) {
   const now = Date.now();
   const log = MALD.readNetLog();
   log.push([t0, job.what, job.cost, job.priority, t0 - job.queued, now - t0, result]);
-  try { localStorage.setItem(LOG_KEY, JSON.stringify(log.slice(-LOG_MAX))); } catch { /* ignore */ }
+  store(LOG_KEY, JSON.stringify(log.slice(-LOG_MAX)));
 }
 MALD.readNetLog = () => { try { const l = JSON.parse(localStorage.getItem(LOG_KEY)); return Array.isArray(l) ? l : []; } catch { return []; } };
 MALD.netLogText = function () {
@@ -181,6 +181,7 @@ MALD.netLogText = function () {
     [new Date(t).toISOString().slice(11, 19), what, cost, pr, waited, ms, result].join("\t"));
   const pace = MALD.readCache("mald:pace");
   return [`Anime Dashboard request log · ${new Date().toISOString()} · ${navigator.userAgent}`,
+    MALD.storageUse(),
     `budget ${net.BURST} at once, then 1 every ${rate()} ms · background pause ${pace.pause || MALD.REQ_PAUSE} ms per title`,
     "time (UTC)\twhat\tMAL requests\tpriority\twaited ms\ttook ms\tresult", ...rows].join("\n");
 };
@@ -317,7 +318,7 @@ function detailsCache(kind) {
   try { return JSON.parse(localStorage.getItem(`mald:details:${kind}`)) || {}; } catch { return {}; }
 }
 function saveDetailsCache(kind, cache) {
-  try { localStorage.setItem(`mald:details:${kind}`, JSON.stringify(cache)); } catch { /* storage full or blocked */ }
+  MALD.writeCache(`mald:details:${kind}`, cache);
 }
 
 function applyDetails(e, d) {
@@ -373,7 +374,7 @@ const KEEP_LIST = 30 * 24 * 3600 * 1000;
 // The last list viewed. When it's your own (signed in), it's kept once, under "mald:mine", and only pointed to here.
 MALD.save = function (data) {
   const value = data && data.source === "mine" ? { ref: "mine", fetchedAt: data.fetchedAt } : data;
-  try { localStorage.setItem("mald:last", JSON.stringify(value)); } catch { /* storage full or blocked */ }
+  store("mald:last", JSON.stringify(value));
 };
 MALD.loadSaved = function () {
   let data = null;
@@ -385,7 +386,7 @@ MALD.loadSaved = function () {
 // Your own list (signed in), kept separately so switching between yours and someone else's is instant.
 MALD.saveMine = function (data) {
   try {
-    if (data) localStorage.setItem("mald:mine", JSON.stringify(data)); else localStorage.removeItem("mald:mine");
+    if (data) store("mald:mine", JSON.stringify(data)); else localStorage.removeItem("mald:mine");
   } catch { /* storage full or blocked */ }
 };
 MALD.loadMine = function () {
@@ -425,4 +426,56 @@ MALD.makeEntry = makeEntry;
 MALD.DETAILS_TTL = DETAILS_TTL;
 MALD.LINKS_TTL = 30 * 24 * 3600 * 1000; // sequel checks are refreshed monthly
 MALD.readCache = (key) => { try { return JSON.parse(localStorage.getItem(key)) || {}; } catch { return {}; } };
-MALD.writeCache = (key, value) => { try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* storage full or blocked */ } };
+// Saves a cache. If the browser's storage is still full after making room, the cache itself keeps
+// its newer half (its entries are [savedAt, value]), so what's kept is the most recent.
+MALD.writeCache = (key, value) => {
+  if (store(key, JSON.stringify(value)) || !PRUNABLE.includes(key) || !value || typeof value !== "object") return;
+  dropOldestHalf(value);
+  if (store(key, JSON.stringify(value))) MALD.storageFull = false; // saved after all (its newer half)
+};
+
+/* ---------- saving to the browser without silently failing ----------
+   Browsers give a site about 5 MB. A big list plus title details can get close, and a failed save used to go
+   unnoticed (and then everything was fetched from MyAnimeList again). Now, when storage is full, the oldest
+   half of what can be fetched again (title details, related titles, sequel checks, older log rows) is dropped,
+   and the save is tried once more. Lists are never dropped this way. */
+const PRUNABLE = ["mald:related:anime", "mald:related:manga", "mald:details:anime", "mald:details:manga", "mald:links:anime", "mald:links:manga"];
+const isFull = (err) => err && (err.name === "QuotaExceededError" || err.name === "NS_ERROR_DOM_QUOTA_REACHED" || err.code === 22 || err.code === 1014);
+function dropOldestHalf(obj) {
+  const ids = Object.keys(obj).sort((a, b) => ((obj[a] && obj[a][0]) || 0) - ((obj[b] && obj[b][0]) || 0));
+  ids.slice(0, Math.ceil(ids.length / 2)).forEach((id) => delete obj[id]);
+}
+function makeRoom(except) {
+  try { localStorage.setItem(LOG_KEY, JSON.stringify(MALD.readNetLog().slice(-100))); } catch { /* ignore */ }
+  for (const key of PRUNABLE) {
+    if (key === except) continue;
+    let obj = null;
+    try { obj = JSON.parse(localStorage.getItem(key)); } catch { /* ignore */ }
+    if (!obj || typeof obj !== "object") continue;
+    dropOldestHalf(obj);
+    try { localStorage.setItem(key, JSON.stringify(obj)); } catch { /* ignore */ }
+  }
+  MALD.storageTrims = (MALD.storageTrims || 0) + 1;
+}
+function store(key, text) {
+  try { localStorage.setItem(key, text); return true; } catch (err) { if (!isFull(err)) return false; }
+  makeRoom(key);
+  try { localStorage.setItem(key, text); return true; } catch { MALD.storageFull = true; return false; }
+}
+// How much this site keeps in the browser, by kind (for the request log).
+MALD.storageUse = function () {
+  const groups = {};
+  let total = 0;
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      const bytes = (k.length + (localStorage.getItem(k) || "").length) * 2; // stored as UTF-16
+      total += bytes;
+      const g = k.startsWith("mald:") ? k.slice(5).split(":")[0] : "other";
+      groups[g] = (groups[g] || 0) + bytes;
+    }
+  } catch { /* ignore */ }
+  const mb = (n) => (n / 1048576).toFixed(2) + " MB";
+  return `storage ${mb(total)} (` + Object.entries(groups).sort((a, b) => b[1] - a[1]).map(([g, n]) => `${g} ${mb(n)}`).join(", ") + ")" +
+    (MALD.storageTrims ? ` · made room ${MALD.storageTrims}×` : "") + (MALD.storageFull ? " · FULL" : "");
+};
