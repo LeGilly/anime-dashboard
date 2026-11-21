@@ -1,16 +1,8 @@
+/* Theme colours (background, text, accent…) come from theme.css, shared by all legilly.com sites.
+   The colours below are the dashboard's own and stay the same in every theme. */
 :root {
-  color-scheme: light dark; /* native controls (date pickers, scrollbars) follow the theme */
-  --bg: #eef5fc;
-  --card: #ffffff;
-  --ink: #1d2b3a;
-  --muted: #6b7c8f;
-  --accent: #128afa;
   --good: #1fa463;
   --bad: #e5484d;
-  --line: #d6e3f0;
-  --tag: #e6f1fd;
-  --track: #e3ecf6;
-  --shadow: 0 1px 2px rgba(29, 43, 58, 0.06), 0 4px 16px rgba(29, 43, 58, 0.06);
   /* List status colors (checked for colorblind separation in this order:
      completed, watching, on hold, plan to watch, dropped). */
   --st-completed: #1f9d55;
@@ -19,16 +11,15 @@
   --st-planned: #8b5cf6;
   --st-dropped: #e5484d;
 }
+:root[data-mode="dark"] {
+  --st-completed: #2a9f5e;
+  --st-current: #2f8fe6;
+  --st-on_hold: #b98a12;
+  --st-planned: #8f72f0;
+  --st-dropped: #e0555a;
+}
 @media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #0f1722;
-    --card: #172231;
-    --ink: #e6eef7;
-    --muted: #8fa1b5;
-    --line: #2a3a4f;
-    --tag: #1d2c40;
-    --track: #223247;
-    --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 4px 16px rgba(0, 0, 0, 0.25);
+  :root:not([data-mode]) {
     --st-completed: #2a9f5e;
     --st-current: #2f8fe6;
     --st-on_hold: #b98a12;
@@ -68,7 +59,7 @@ h1 span { color: var(--accent); }
 /* ---------- controls ---------- */
 button {
   padding: 9px 16px; font: inherit; font-size: 0.95rem; border-radius: 10px; border: 0;
-  background: var(--accent); color: #fff; cursor: pointer; font-weight: 600;
+  background: var(--accent); color: var(--accent-ink); cursor: pointer; font-weight: 600;
 }
 button:disabled { opacity: .45; cursor: default; }
 button.ghost, .btn.ghost { background: transparent; color: var(--muted); border: 1px solid var(--line); font-weight: 500; }
@@ -76,7 +67,7 @@ button.ghost:hover:not(:disabled), .btn.ghost:hover { color: var(--accent); bord
 button.link { background: none; color: var(--muted); font-weight: 400; font-size: 0.85rem; padding: 6px 0 0; text-decoration: underline; }
 button.link:hover { color: var(--accent); }
 .btn {
-  display: inline-block; background: var(--accent); color: #fff; text-decoration: none;
+  display: inline-block; background: var(--accent); color: var(--accent-ink); text-decoration: none;
   font-weight: 600; font-size: 0.9rem; padding: 7px 16px; border-radius: 999px; cursor: pointer;
 }
 .btn:hover { filter: brightness(1.08); }
@@ -119,7 +110,7 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover { opacity: 1; }
 .seg { display: inline-flex; background: var(--card); border: 1px solid var(--line); border-radius: 999px; padding: 3px; }
 .seg button { background: none; color: var(--muted); font-weight: 600; padding: 6px 14px; border-radius: 999px; font-size: 0.9rem; }
 .seg button small { font-weight: 500; opacity: .8; margin-left: 2px; }
-.seg button[aria-pressed="true"] { background: var(--accent); color: #fff; }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
 .seg.small button { padding: 4px 10px; font-size: 0.8rem; }
 
 .settings { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 20px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; margin-bottom: 10px; font-size: 0.9rem; }
@@ -404,7 +395,8 @@ footer a { color: inherit; }
   flex: none; width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center;
   background: var(--st-on_hold); color: #fff; font-weight: 800; font-size: 0.9rem;
 }
-@media (prefers-color-scheme: dark) { .notice.warn { background: rgba(185, 138, 18, 0.14); } }
+:root[data-mode="dark"] .notice.warn { background: rgba(185, 138, 18, 0.14); }
+@media (prefers-color-scheme: dark) { :root:not([data-mode]) .notice.warn { background: rgba(185, 138, 18, 0.14); } }
 @media (max-width: 560px) { .notice { flex-wrap: wrap; } .notice button { width: 100%; } }
 
 /* ---------- signing in and editing ---------- */
@@ -420,7 +412,7 @@ footer a { color: inherit; }
 .pw > .pcard, .rw > .rcard { flex: 1; min-width: 0; }
 .plus1 {
   position: absolute; padding: 4px 10px; font-size: 0.8rem; font-weight: 700; border-radius: 999px;
-  background: var(--accent); color: #fff; box-shadow: 0 2px 8px rgba(0, 0, 0, .25);
+  background: var(--accent); color: var(--accent-ink); box-shadow: 0 2px 8px rgba(0, 0, 0, .25);
 }
 .pw .plus1 { right: 10px; top: 50%; transform: translateY(-50%); }
 .pw > .pcard { padding-right: 60px; }

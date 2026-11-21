@@ -1,5 +1,8 @@
 # Changelog
 
+## 2.4.0 · 2026-11-21
+- Colour themes: Blue, Purple, Teal, Amber and Rose, each in light and dark, from the button in the top-right corner. The choice applies to every legilly.com site; status colours stay the same
+
 ## 2.3.0 · 2026-11-21
 - New Search tab: search all of MyAnimeList by name, browse a season's anime or the top lists, with type filters and an option to hide titles already on the list
 - Next up shows a counter while it looks up suggested titles

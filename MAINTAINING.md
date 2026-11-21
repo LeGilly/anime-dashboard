@@ -39,7 +39,7 @@ covers how it's built, released and why some things are the way they are.
 
 1. Version is major.minor.patch: patch = fixes and small visual changes, minor = a new feature,
    major = a big change in what the app is or does.
-2. Set it in `index.html` (footer `vX.Y.Z` and every `?v=`) and in `privacy.html` (`?v=`), so browsers
+2. Set it in `index.html` (footer `vX.Y.Z` and every `?v=`, including theme.js/theme.css) and in `privacy.html` (`?v=`), so browsers
    fetch the fresh files.
 3. Add an entry at the top of `CHANGELOG.md` (`## X.Y.Z · YYYY-MM-DD`, one short line per change).
 4. If `worker/worker.js` changed, the owner must also redeploy it: Cloudflare → Workers & Pages →
@@ -121,8 +121,23 @@ There's no test suite in the repo. What has worked:
 - Check light and dark mode and a phone width (390 px). Native pop-ups like the date picker only show in a
   real (headful) browser, e.g. Chrome on a virtual screen (Xvfb) captured with a screenshot tool.
 
-## Planned
+## Colour themes (shared by all legilly.com sites)
 
-- **Theme picker** across all legilly.com sites: Blue (current), Purple, Green/teal, Amber, Rose, each with
-  light and dark versions, plus System/Light/Dark. One choice for all sites, saved in a cookie readable by
-  every legilly.com subdomain (name only). Here it goes in Settings; status colors stay fixed.
+- `theme.css` and `theme.js` are shared by the hub, Anime Dashboard, Who's that Halo? and IdleRPG Web and must
+  stay **identical in every repo**: change them in one, copy them to the other three, and release each site.
+- `theme.js` is loaded in `<head>` before the stylesheets. It reads the `legilly_theme` cookie (`theme.mode`,
+  e.g. `purple.dark`; `Domain=legilly.com` so every subdomain shares it; falls back to localStorage elsewhere,
+  e.g. localhost), sets `data-theme` (blue, purple, teal, amber, rose) and `data-mode` (light or dark, with
+  System resolved) on `<html>`, and adds the theme button in the page's top-right corner, or inside an
+  element marked `data-tp-slot`. `<html data-tp-dark-only>` keeps a site dark.
+- `theme.css` defines `--bg --card --ink --muted --accent --accent-ink --line --tag --track --shadow` for each
+  theme in light and dark, plus the button and panel styles. Site stylesheets don't redefine these.
+- Text on an accent background uses `var(--accent-ink)`: white in light mode; dark text on the lighter
+  dark-mode accents (all but blue).
+- Dark-only rules are written as `:root[data-mode="dark"] …`, plus `@media (prefers-color-scheme: dark)
+  { :root:not([data-mode]) … }` as a fallback without the script.
+- How the palettes were made: the blue neutrals with only the hue rotated (same lightness, so the same
+  contrast); accents chosen by calculation, with at least the blue's contrast and at least as far from the
+  dashboard's status colours as the blue is from "Plan to watch". Check any new theme the same way.
+- Here: the status colours (`--st-*`, with dark variants) and `--good`/`--bad` are defined in `style.css`
+  and never change with the theme.
