@@ -521,13 +521,18 @@
     // Details still missing for suggestions found so far, fetched 5 at a time.
     const fillDetails = async () => {
       const missing = MALD.recDetailIds(entries, plan.links).filter((id) => !st.details.has(id));
+      st.bg.looking = missing.length ? { done: 0, total: missing.length } : null;
+      updateBgNote(kind);
       for (let i = 0; i < missing.length; i += 5) {
         if (S.recData[kind] !== st) return false;
         let res;
         await paced(Math.min(5, missing.length - i), async () => { res = await MALD.loadDetails(kind, missing.slice(i, i + 5), net); });
         for (const [id, d] of res.details) st.details.set(id, d);
-        if (res.error) { slowedDown(res.error); return false; }
+        if (res.error) { st.bg.looking = null; slowedDown(res.error); return false; }
+        st.bg.looking.done = Math.min(missing.length, i + 5);
+        updateBgNote(kind);
       }
+      if (missing.length) { st.bg.looking = null; refreshNext(kind, entries); }
       return true;
     };
     if (!(await fillDetails())) return;
@@ -587,6 +592,9 @@
 
   function bgNoteText(st) {
     const label = S.kind === "anime" ? "anime" : "manga";
+    const lk = st.bg && st.bg.running && st.bg.looking;
+    if (lk) return `Looking up ${MALD.fmtNum(lk.total)} suggested title${lk.total === 1 ? "" : "s"} (genres, length, airing)… ${MALD.fmtNum(lk.done)}/${MALD.fmtNum(lk.total)}. `
+      + (st.bg.total ? `Then checking your ${label} for sequels (${MALD.fmtNum(st.bg.done)}/${MALD.fmtNum(st.bg.total)}).` : "");
     if (st.bg && st.bg.running && st.bg.total) return `Checking your ${label} for sequels… ${MALD.fmtNum(st.bg.done)}/${MALD.fmtNum(st.bg.total)}. Results update as it goes.`;
     if (st.bg && st.bg.running) return "Looking up suggested titles…";
     return "";

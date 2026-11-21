@@ -7,7 +7,7 @@
   <meta name="referrer" content="no-referrer">
   <title>Privacy · Anime Dashboard</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23128afa'/%3E%3Ctext x='16' y='23' font-family='Segoe UI,Arial,sans-serif' font-size='19' font-weight='700' fill='white' text-anchor='middle'%3EA%3C/text%3E%3C/svg%3E">
-  <link rel="stylesheet" href="style.css?v=25">
+  <link rel="stylesheet" href="style.css?v=26">
 </head>
 <body>
   <main class="wrap prose">
@@ -46,10 +46,11 @@
 
       <h2>The relay</h2>
       <p>The relay is a small program on Cloudflare that passes requests between your browser and MyAnimeList.
-        It doesn't store your lists, your sign-in or anything else. For each request it makes to MyAnimeList it writes
-        a log line with only the kind of request, MyAnimeList's answer and timings (no names, titles or addresses);
-        Cloudflare keeps these for a few days. Cloudflare may also keep short technical logs (such as which addresses
-        made requests) as part of running its service.</p>
+        It doesn't store your lists, your sign-in or anything else. To understand MyAnimeList's slowdowns, it keeps
+        a short log for a few days, visible only to the site's owner: each request it received (including the
+        MyAnimeList username of a list you load, which is public on MyAnimeList anyway), and for each request it made
+        to MyAnimeList, the kind of request, MyAnimeList's answer and timings. Your sign-in key is never written in a readable form.
+        Cloudflare may also keep short technical logs (such as which addresses made requests) as part of running its service.</p>
 
       <h2>Sharing</h2>
       <p>Nothing is sold or shared. Your data only goes between your browser, the relay and MyAnimeList.
