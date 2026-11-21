@@ -306,12 +306,13 @@
     const byScore = (a, b) => b.score - a.score;
 
     const pool = out.filter(genreOk);
-    const cont = pool.filter((x) => x.isSequel && released(x) && lengthOk(x.e)).sort(byScore);
+    // The source filter (everything / plan to watch / not on my list) applies to every section.
+    const cont = pool.filter((x) => x.isSequel && released(x) && lengthOk(x.e) && sourceOk(x)).sort(byScore);
     const contIds = new Set(cont.map((x) => x.e.id));
     const recommended = pool.filter((x) => !contIds.has(x.e.id) && released(x) && lengthOk(x.e) && sourceOk(x)
       && (x.onList || x.recommended)).sort(byScore);
     const shown = new Set([...contIds, ...recommended.map((x) => x.e.id)]);
-    const comingUp = pool.filter((x) => !shown.has(x.e.id) && (MALD.isUpcoming(x.e) || MALD.isOngoing(x.e)) && (x.related || x.onList))
+    const comingUp = pool.filter((x) => !shown.has(x.e.id) && sourceOk(x) && (MALD.isUpcoming(x.e) || MALD.isOngoing(x.e)) && (x.related || x.onList))
       .sort((a, b) => (MALD.isOngoing(b.e) - MALD.isOngoing(a.e)) || (a.e.airStart || "9999").localeCompare(b.e.airStart || "9999"));
     const genres = [...new Set(out.flatMap((x) => x.e.genres))].sort();
     // What the picks are based on, so the page can say so.

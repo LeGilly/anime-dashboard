@@ -62,6 +62,7 @@ h1 span { color: var(--accent); }
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 .hint { color: var(--muted); font-size: 0.85rem; margin: 4px 0 0; }
+.hint.center { text-align: center; margin: -6px 0 14px; }
 
 /* ---------- controls ---------- */
 button {
@@ -217,6 +218,11 @@ img.nsfw { filter: blur(14px); }
 .qrow { grid-template-columns: 32px minmax(0, 1fr) 44px; background: var(--bg); padding: 4px 12px 4px 4px; }
 
 /* ---------- next up ---------- */
+.basis {
+  max-width: 720px; margin: 6px auto 14px; padding: 10px 16px; text-align: center;
+  background: var(--tag); color: var(--ink); border: 1px solid var(--line); border-radius: 12px;
+  font-size: 0.95rem; font-weight: 600;
+}
 .check { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 0.85rem; cursor: pointer; }
 .rgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 8px; margin-top: 10px; }
 .rcard {

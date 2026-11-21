@@ -18,7 +18,7 @@
     groupAll: { genres: false, creators: false },
     histMetric: "count",
     histYear: null,
-    next: { source: "both", genre: "", exclude: "", length: "", airing: false, shown: 12, contAll: false },
+    next: { source: "both", genre: "", exclude: "", length: "", airing: false, shown: 12, contShown: 6, soonShown: 6 },
     recData: {},
     recPool: new Map(),
     prefs: { english: false, blur: true },
@@ -402,6 +402,8 @@
 
   /* ---------- Next up ---------- */
 
+  function resetNextPaging() { Object.assign(S.next, { shown: 12, contShown: 6, soonShown: 6 }); }
+
   async function loadRecs(kind, entries) {
     const st = (S.recData[kind] = { status: "loading", done: 0, total: 0 });
     if (!MALD.relayReady()) {
@@ -478,12 +480,12 @@
         <label class="check"><input type="checkbox" id="rAiring"${N.airing ? " checked" : ""}> Include ${anime ? "airing" : "ongoing"}</label>
       </div>
       ${st.error ? `<p class="sub warn">${esc(st.error)} <button class="link" data-act="rretry">Try again</button></p>` : ""}
-      ${res.basis === "empty" ? `<p class="hint">There's nothing ${anime ? "watched" : "read"}, ${anime ? "watching" : "reading"} or dropped on this list yet, so these picks only use your ${plan.toLowerCase()} and MyAnimeList scores. They'll get more personal as your list grows.</p>`
-        : `<p class="hint">${esc(res.basis)}</p>`}
-      ${S.prefs.blur ? `<p class="hint">18+ titles are left out while "Blur 18+ covers" is on in Settings.</p>` : ""}
-      ${section("Continue a series", `Sequels to ${anime ? "shows" : "series"} you finished.`, res.cont, "No sequels waiting for you with these filters.", { limit: N.contAll ? 0 : 6, more: "cmore", extra: "" })}
+      ${res.basis === "empty" ? `<p class="basis">There's nothing ${anime ? "watched" : "read"}, ${anime ? "watching" : "reading"} or dropped on this list yet, so these picks only use your ${plan.toLowerCase()} and MyAnimeList scores. They'll get more personal as your list grows.</p>`
+        : `<p class="basis">${esc(res.basis)}</p>`}
+      ${S.prefs.blur ? `<p class="hint center">18+ titles are left out while "Blur 18+ covers" is on in Settings.</p>` : ""}
+      ${section("Continue a series", `Sequels to ${anime ? "shows" : "series"} you finished.`, res.cont, "No sequels waiting for you with these filters.", { limit: N.contShown, more: "cmore", extra: "" })}
       ${section("Recommended for you", "Based on what you rate highly, and what MyAnimeList users recommend from your favorites.", res.recommended, "Nothing matches these filters.", { limit: N.shown, more: "rmore" })}
-      ${section("Coming up", `Related to ${anime ? "shows" : "series"} you've seen, or on your ${plan.toLowerCase()}: not out yet, or still ${anime ? "airing" : "ongoing"}.`, res.comingUp, "Nothing announced right now.", { extra: "soon" })}`;
+      ${section("Coming up", `Related to ${anime ? "shows" : "series"} you've seen, or on your ${plan.toLowerCase()}: not out yet, or still ${anime ? "airing" : "ongoing"}.`, res.comingUp, "Nothing announced right now.", { limit: N.soonShown, more: "smore", extra: "soon" })}`;
   }
 
   /* ---------- detail panel ---------- */
@@ -604,7 +606,7 @@
       if (!b || b.dataset.kind === S.kind) return;
       S.kind = b.dataset.kind;
       S.lib = Object.assign(S.lib, { status: "all", type: "", genre: "", creator: "", year: "", shown: PAGE });
-      Object.assign(S.next, { genre: "", exclude: "", length: "", shown: 12 });
+      Object.assign(S.next, { genre: "", exclude: "", length: "" }); resetNextPaging();
       syncUrl(); render();
     });
     $("tabs").addEventListener("click", (ev) => {
@@ -661,10 +663,10 @@
       const map = { fType: "type", fGenre: "genre", fCreator: "creator", fYear: "year", fSort: "sort" };
       if (map[ev.target.id]) { S.lib[map[ev.target.id]] = ev.target.value; S.lib.shown = PAGE; render(); }
       else if (ev.target.id === "qSort") { S.queueSort = ev.target.value; render(); }
-      else if (ev.target.id === "rGenre") { S.next.genre = ev.target.value; S.next.shown = 12; render(); }
-      else if (ev.target.id === "rExclude") { S.next.exclude = ev.target.value; S.next.shown = 12; render(); }
-      else if (ev.target.id === "rLength") { S.next.length = ev.target.value; S.next.shown = 12; render(); }
-      else if (ev.target.id === "rAiring") { S.next.airing = ev.target.checked; S.next.shown = 12; render(); }
+      else if (ev.target.id === "rGenre") { S.next.genre = ev.target.value; resetNextPaging(); render(); }
+      else if (ev.target.id === "rExclude") { S.next.exclude = ev.target.value; resetNextPaging(); render(); }
+      else if (ev.target.id === "rLength") { S.next.length = ev.target.value; resetNextPaging(); render(); }
+      else if (ev.target.id === "rAiring") { S.next.airing = ev.target.checked; resetNextPaging(); render(); }
     });
     view.addEventListener("click", (ev) => {
       const t = ev.target.closest("button");
@@ -674,9 +676,10 @@
       else if (t.dataset.act === "more") { S.lib.shown += PAGE; render(); }
       else if (t.dataset.act === "clear") { Object.assign(S.lib, { status: "all", q: "", type: "", genre: "", creator: "", year: "", shown: PAGE }); render(); }
       else if (t.dataset.gmode) { S.groupMode[t.dataset.field] = t.dataset.gmode; render(); }
-      else if (t.dataset.rsource) { S.next.source = t.dataset.rsource; S.next.shown = 12; render(); }
+      else if (t.dataset.rsource) { S.next.source = t.dataset.rsource; resetNextPaging(); render(); }
       else if (t.dataset.act === "rmore") { S.next.shown += 12; render(); }
-      else if (t.dataset.act === "cmore") { S.next.contAll = true; render(); }
+      else if (t.dataset.act === "cmore") { S.next.contShown += 12; render(); }
+      else if (t.dataset.act === "smore") { S.next.soonShown += 12; render(); }
       else if (t.dataset.act === "rretry") { delete S.recData[S.kind]; render(); }
       else if (t.dataset.expand) { S.expand[t.dataset.expand] = !S.expand[t.dataset.expand]; render(); }
       else if (t.dataset.gall) { S.groupAll[t.dataset.gall] = !S.groupAll[t.dataset.gall]; render(); }
