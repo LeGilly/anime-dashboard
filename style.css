@@ -235,15 +235,29 @@ img.nsfw { filter: blur(14px); }
 }
 .multi.on .msel { border-color: var(--accent); color: var(--accent); }
 .mpanel {
-  position: absolute; z-index: 20; top: calc(100% + 4px); left: 0; min-width: 220px; max-height: 340px; overflow-y: auto;
-  background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 8px; box-shadow: 0 8px 24px rgba(0, 0, 0, .15);
+  position: absolute; z-index: 20; top: calc(100% + 4px); left: 0; min-width: 240px; max-height: 380px; overflow-y: auto;
+  background: var(--card); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 8px 24px rgba(0, 0, 0, .15);
 }
-.mlist { display: grid; gap: 0 12px; }
+/* Pinned at the top of the list while the options scroll underneath. */
+.mhead {
+  position: sticky; top: 0; z-index: 1; display: flex; flex-direction: column; gap: 8px;
+  background: var(--card); border-bottom: 1px solid var(--line); padding: 10px;
+}
+.mhead:empty { display: none; }
+.msearch { width: 100%; font-size: 0.88rem; padding: 6px 10px; }
+.mbtns { display: flex; gap: 6px; }
+.mbtn {
+  font-size: 0.8rem; font-weight: 600; padding: 4px 12px; border-radius: 999px;
+  background: var(--tag); color: var(--accent); border: 1px solid transparent;
+}
+.mbtn:hover { border-color: var(--accent); }
+.mall { display: flex; align-items: center; gap: 8px; font-size: 0.85rem; color: var(--muted); cursor: pointer; }
+.mlist { display: grid; gap: 0 12px; padding: 8px; }
+.mlist .hint { margin: 4px 6px; }
 .mlist.twocol { grid-template-columns: repeat(2, minmax(150px, 1fr)); }
 .mopt { display: flex; align-items: center; gap: 8px; padding: 5px 6px; border-radius: 6px; font-size: 0.88rem; cursor: pointer; white-space: nowrap; }
 .mopt:hover { background: var(--bg); }
-.mopt.all { color: var(--muted); border-bottom: 1px solid var(--line); border-radius: 0; margin-bottom: 4px; padding-bottom: 8px; }
-.mpanel .link { padding: 6px 6px 2px; }
+
 .check { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 0.85rem; cursor: pointer; }
 .rgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 8px; margin-top: 10px; }
 .rcard {
@@ -356,3 +370,4 @@ footer a { color: inherit; }
   .mpanel { max-width: calc(100vw - 32px); }
   .mlist.twocol { grid-template-columns: 1fr; }
 }
+.filters .mhead .msearch { flex: none; min-width: 0; }

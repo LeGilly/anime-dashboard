@@ -222,6 +222,17 @@
 
   /* ---------- scoring ---------- */
 
+  // Every genre among the possible picks, for the genre lists.
+  MALD.recGenres = function (entries, kind, links, details) {
+    const { cands, byId } = gather(entries, links);
+    const names = new Set();
+    for (const c of cands.values()) {
+      const e = byId.get(c.id) || details.get(c.id);
+      if (e && e.genres) e.genres.forEach((g) => names.add(g));
+    }
+    return [...names].sort();
+  };
+
   MALD.recommend = function (entries, kind, links, details, opts, titleOf) {
     const { profile, cands, byId, favs } = gather(entries, links);
     const sigOf = (e) => profile.sig.get(e.id) ?? 0;
@@ -286,7 +297,8 @@
 
     // Filters.
     // Several lengths can be ticked: a title passes if it matches any of them.
-    const lengthOk = (e) => !opts.lengths.length || opts.lengths.some((L) => oneLength(e, L));
+    // null means every length is ticked: no filtering (titles of unknown length stay in).
+    const lengthOk = (e) => !opts.lengths || opts.lengths.some((L) => oneLength(e, L));
     const oneLength = (e, L) => {
       if (anime) {
         if (L === "movie") return e.mediaType === "Movie";
@@ -299,11 +311,12 @@
       if (L === "short") return e.totalVol > 0 && e.totalVol <= 5;
       return e.totalVol > 5;
     };
-    // Ticked genres: any of them (or all of them with "must have all"); left-out genres: none of them.
+    // Ticked genres: any of them (or all of them with "must have all"); null means every genre is ticked.
+    // Left-out genres: none of them.
     const genreOk = (x) => {
       const g = x.e.genres;
       const want = opts.genres;
-      if (want.length && !(opts.matchAll ? want.every((w) => g.includes(w)) : want.some((w) => g.includes(w)))) return false;
+      if (want && !(opts.matchAll ? want.length && want.every((w) => g.includes(w)) : want.some((w) => g.includes(w)))) return false;
       if (opts.excludes.some((w) => g.includes(w))) return false;
       return !(opts.hideAdult && MALD.isAdult(x.e));
     };

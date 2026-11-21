@@ -18,8 +18,10 @@
     groupAll: { genres: false, creators: false },
     histMetric: "count",
     histYear: null,
-    next: { source: "both", genres: [], matchAll: false, excludes: [], lengths: [], airing: false, shown: 12, contShown: 6, soonShown: 6 },
+    // Genres and lengths remember what's unticked, so everything starts ticked.
+    next: { source: "both", genresOff: [], matchAll: false, excludes: [], lengthsOff: [], airing: false, shown: 12, contShown: 6, soonShown: 6 },
     openMulti: null,
+    msearch: {},
     recData: {},
     recPool: new Map(),
     prefs: { english: false, blur: true },
@@ -404,6 +406,17 @@
   /* ---------- Next up ---------- */
 
   function resetNextPaging() { Object.assign(S.next, { shown: 12, contShown: 6, soonShown: 6 }); }
+  // Redraws after a change in an open list without the list jumping back to the top.
+  function keepListPosition(key, redraw) {
+    const sel = `[data-multi="${key}"] .mpanel`;
+    const old = document.querySelector(sel);
+    const top = old ? old.scrollTop : 0;
+    redraw();
+    const now = document.querySelector(sel);
+    if (now) now.scrollTop = top;
+  }
+  // The ticked values, or null when everything is ticked (no filtering).
+  const ticked = (all, off) => (off.length ? all.filter((v) => !off.includes(v)) : null);
 
   async function loadRecs(kind, entries) {
     const st = (S.recData[kind] = { status: "loading", done: 0, total: 0 });
@@ -433,25 +446,48 @@
       return;
     }
     const N = S.next;
+    const allGenres = MALD.recGenres(entries, S.kind, st.links, st.details);
+    const allLengths = (anime ? ["movie", "short", "medium", "long"] : ["oneshot", "short", "long"]);
+    const gOn = ticked(allGenres, N.genresOff);
+    const lOn = ticked(allLengths, N.lengthsOff);
     const res = MALD.recommend(entries, S.kind, st.links, st.details,
-      { source: N.source, genres: N.genres, matchAll: N.matchAll, excludes: N.excludes, lengths: N.lengths, airing: N.airing, hideAdult: S.prefs.blur }, titleOf);
+      { source: N.source, genres: ticked(allGenres, N.genresOff), matchAll: N.matchAll, excludes: N.excludes,
+        lengths: ticked(allLengths, N.lengthsOff), airing: N.airing, hideAdult: S.prefs.blur }, titleOf);
     S.recPool = res.pool;
 
     const lengthOpts = anime
       ? [["", "Any length"], ["movie", "Movies"], ["short", "Short (up to 13 eps)"], ["medium", "Medium (14 to 26 eps)"], ["long", "Long (27+ eps)"]]
       : [["", "Any length"], ["oneshot", "One-shots"], ["short", "Short (up to 5 vols)"], ["long", "Long (6+ vols)"]];
+    lengthOpts.shift(); // "Any length" is now simply every box ticked
     // A button that opens a list of checkboxes, so several options can be ticked.
-    const multi = (key, name, picked, options, label, extra = "") => `
-      <div class="multi${picked.length ? " on" : ""}" data-multi="${key}">
+    // "off" lists start with every box ticked (unticking narrows); the leave-out list starts empty.
+    // The header (search, tick/untick buttons, extra option) stays pinned while the list scrolls.
+    const multi = (key, name, options, isChecked, label, active, extra = "") => {
+      const off = key.endsWith("Off");
+      const search = options.length > 12;
+      const q = search ? (S.msearch[key] || "").trim().toLowerCase() : "";
+      const shown = q ? options.filter(([, t]) => t.toLowerCase().includes(q)) : options;
+      const nChecked = shown.filter(([v]) => isChecked(v)).length;
+      const btn = (set, text) => `<button type="button" class="mbtn" data-mset="${set}">${text}</button>`;
+      const buttons = off
+        ? [nChecked < shown.length ? btn("all", q ? "Tick these" : "Tick all") : "", nChecked ? btn("none", q ? "Untick these" : "Untick all") : ""].join("")
+        : options.some(([v]) => isChecked(v)) ? btn("none", "Clear") : "";
+      return `
+      <div class="multi${active ? " on" : ""}" data-multi="${key}">
         <button type="button" class="msel" aria-haspopup="true" aria-expanded="${S.openMulti === key}" aria-label="${esc(name)}">${esc(label)}</button>
         <div class="mpanel"${S.openMulti === key ? "" : " hidden"}>
-          ${extra}
-          <div class="mlist${options.length > 8 ? " twocol" : ""}">
-            ${options.map(([v, t]) => `<label class="mopt"><input type="checkbox" data-mval="${esc(v)}"${picked.includes(v) ? " checked" : ""}> ${esc(t)}</label>`).join("")}
+          <div class="mhead">
+            ${search ? `<input type="search" class="msearch" data-msearch placeholder="Search ${esc(name.toLowerCase())}…" value="${esc(S.msearch[key] || "")}" aria-label="Search ${esc(name.toLowerCase())}">` : ""}
+            ${buttons ? `<div class="mbtns">${buttons}</div>` : ""}
+            ${extra}
           </div>
-          ${picked.length ? `<button type="button" class="link" data-mclear="${key}">Clear</button>` : ""}
+          <div class="mlist${shown.length > 8 ? " twocol" : ""}">
+            ${shown.map(([v, t]) => `<label class="mopt"><input type="checkbox" data-mval="${esc(v)}"${isChecked(v) ? " checked" : ""}> ${esc(t)}</label>`).join("")}
+            ${!shown.length ? `<p class="hint">No ${esc(name.toLowerCase())} match "${esc(S.msearch[key])}".</p>` : ""}
+          </div>
         </div>
       </div>`;
+    };
     const plan = anime ? "Plan to watch" : "Plan to read";
 
     const card = (x, extra) => {
@@ -486,13 +522,13 @@
         <div class="seg small" id="recSource" aria-label="Suggestions from">
           ${[["both", "Everything"], ["list", plan], ["new", "Not on my list"]].map(([v, t]) => `<button data-rsource="${v}" aria-pressed="${N.source === v}">${t}</button>`).join("")}
         </div>
-        ${multi("genres", "Genres", N.genres, res.genres.map((g) => [g, g]),
-          N.genres.length ? (N.genres.length <= 2 ? N.genres.join(N.matchAll ? " + " : ", ") : `${N.genres.length} genres`) : "Any genre",
-          `<label class="mopt all"><input type="checkbox" data-mall${N.matchAll ? " checked" : ""}> Must have all of them</label>`)}
-        ${multi("excludes", "Leave out genres", N.excludes, res.genres.map((g) => [g, g]),
-          N.excludes.length ? (N.excludes.length <= 2 ? `Without ${N.excludes.join(", ")}` : `Without ${N.excludes.length} genres`) : "Leave out genres…")}
-        ${multi("lengths", "Length", N.lengths, lengthOpts.filter(([v]) => v),
-          N.lengths.length ? lengthOpts.filter(([v]) => N.lengths.includes(v)).map(([, t]) => t.replace(/ \(.*\)/, "")).join(", ") : "Any length")}
+        ${multi("genresOff", "Genres", allGenres.map((g) => [g, g]), (g) => !N.genresOff.includes(g),
+          !gOn ? "Any genre" : !gOn.length ? "No genre" : gOn.length <= 2 ? gOn.join(N.matchAll ? " + " : ", ") : `${gOn.length} genres`, !!gOn,
+          gOn ? `<label class="mall"><input type="checkbox" data-mall${N.matchAll ? " checked" : ""}> Must have all ticked genres</label>` : "")}
+        ${multi("excludes", "Leave out genres", allGenres.map((g) => [g, g]), (g) => N.excludes.includes(g),
+          N.excludes.length ? (N.excludes.length <= 2 ? `Without ${N.excludes.join(", ")}` : `Without ${N.excludes.length} genres`) : "Leave out genres…", N.excludes.length > 0)}
+        ${multi("lengthsOff", "Length", lengthOpts, (v) => !N.lengthsOff.includes(v),
+          !lOn ? "Any length" : !lOn.length ? "No length" : lengthOpts.filter(([v]) => lOn.includes(v)).map(([, t]) => t.replace(/ \(.*\)/, "")).join(", "), !!lOn)}
         <label class="check"><input type="checkbox" id="rAiring"${N.airing ? " checked" : ""}> Include ${anime ? "airing" : "ongoing"}</label>
       </div>
       ${st.error ? `<p class="sub warn">${esc(st.error)} <button class="link" data-act="rretry">Try again</button></p>` : ""}
@@ -622,7 +658,7 @@
       if (!b || b.dataset.kind === S.kind) return;
       S.kind = b.dataset.kind;
       S.lib = Object.assign(S.lib, { status: "all", type: "", genre: "", creator: "", year: "", shown: PAGE });
-      Object.assign(S.next, { genres: [], matchAll: false, excludes: [], lengths: [] }); S.openMulti = null; resetNextPaging();
+      Object.assign(S.next, { genresOff: [], matchAll: false, excludes: [], lengthsOff: [] }); S.openMulti = null; S.msearch = {}; resetNextPaging();
       syncUrl(); render();
     });
     $("tabs").addEventListener("click", (ev) => {
@@ -666,6 +702,14 @@
     const view = $("view");
     let searchTimer;
     view.addEventListener("input", (ev) => {
+      if (ev.target.matches("[data-msearch]")) {
+        const key = ev.target.closest("[data-multi]").dataset.multi;
+        S.msearch[key] = ev.target.value;
+        render();
+        const box = view.querySelector(`[data-multi="${key}"] [data-msearch]`);
+        if (box) { box.focus(); box.setSelectionRange(box.value.length, box.value.length); }
+        return;
+      }
       if (ev.target.id !== "q") return;
       clearTimeout(searchTimer);
       searchTimer = setTimeout(() => {
@@ -682,10 +726,12 @@
       else if (ev.target.matches("[data-mval]")) {
         const key = ev.target.closest("[data-multi]").dataset.multi;
         const v = ev.target.dataset.mval;
-        S.next[key] = ev.target.checked ? [...S.next[key], v] : S.next[key].filter((x) => x !== v);
-        resetNextPaging(); render();
+        // For "off" lists a tick removes it from the unticked list; for the leave-out list a tick adds it.
+        const add = key.endsWith("Off") ? !ev.target.checked : ev.target.checked;
+        S.next[key] = add ? [...S.next[key], v] : S.next[key].filter((x) => x !== v);
+        keepListPosition(key, () => { resetNextPaging(); render(); });
       }
-      else if (ev.target.matches("[data-mall]")) { S.next.matchAll = ev.target.checked; resetNextPaging(); render(); }
+      else if (ev.target.matches("[data-mall]")) { keepListPosition("genresOff", () => { S.next.matchAll = ev.target.checked; resetNextPaging(); render(); }); }
       else if (ev.target.id === "rAiring") { S.next.airing = ev.target.checked; resetNextPaging(); render(); }
     });
     view.addEventListener("click", (ev) => {
@@ -705,7 +751,18 @@
           m.querySelector(".msel").setAttribute("aria-expanded", String(open));
         });
       }
-      else if (t.dataset.mclear) { S.next[t.dataset.mclear] = []; if (t.dataset.mclear === "genres") S.next.matchAll = false; resetNextPaging(); render(); }
+      else if (t.dataset.mset) {
+        const m = t.closest("[data-multi]");
+        const key = m.dataset.multi;
+        // Only the genres currently shown (after a search) are affected.
+        const shownVals = [...m.querySelectorAll("[data-mval]")].map((i) => i.dataset.mval);
+        if (key.endsWith("Off")) {
+          const rest = S.next[key].filter((v) => !shownVals.includes(v));
+          S.next[key] = t.dataset.mset === "all" ? rest : [...rest, ...shownVals];
+        } else S.next[key] = []; // "Clear" empties the leave-out list
+        if (key === "genresOff" && t.dataset.mset === "all") S.next.matchAll = false;
+        keepListPosition(key, () => { resetNextPaging(); render(); });
+      }
       else if (t.dataset.rsource) { S.next.source = t.dataset.rsource; resetNextPaging(); render(); }
       else if (t.dataset.act === "rmore") { S.next.shown += 12; render(); }
       else if (t.dataset.act === "cmore") { S.next.contShown += 12; render(); }
