@@ -100,11 +100,11 @@ function slimLinks(type) {
   });
 }
 
-// Looks up several titles, a few at a time so MAL isn't hit with them all at once.
+// Looks up several titles, two at a time so MAL isn't hit with them all at once.
 async function getMany(env, type, ids, fields, shape) {
   const items = [];
-  for (let i = 0; i < ids.length; i += 5) {
-    const batch = ids.slice(i, i + 5);
+  for (let i = 0; i < ids.length; i += 2) {
+    const batch = ids.slice(i, i + 2);
     items.push(...await Promise.all(batch.map(async (id) => {
       try {
         return shape(await mal(env, `${MAL}/${type}/${id}?nsfw=true&fields=${fields}`));
@@ -118,7 +118,13 @@ async function getMany(env, type, ids, fields, shape) {
 }
 
 async function mal(env, url) {
-  const res = await fetch(url, { headers: { "X-MAL-CLIENT-ID": env.MAL_CLIENT_ID } });
+  let res;
+  try {
+    // Give up after 15 seconds instead of waiting forever when MAL stops answering.
+    res = await fetch(url, { headers: { "X-MAL-CLIENT-ID": env.MAL_CLIENT_ID }, signal: AbortSignal.timeout(15000) });
+  } catch {
+    throw Object.assign(new Error("MyAnimeList took too long to answer. It may be busy or limiting requests; try again in a minute."), { status: 504 });
+  }
   if (res.ok) return res.json();
   const messages = {
     400: "MyAnimeList rejected the request.",

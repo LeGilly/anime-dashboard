@@ -503,8 +503,8 @@
   function pausedBanner(st) {
     if (!(st.bg && st.bg.paused)) return "";
     const at = `${MALD.fmtNum(st.bg.done)} of ${MALD.fmtNum(st.bg.total)}`;
-    const [title, text] = /limiting/i.test(st.bg.paused)
-      ? ["MyAnimeList asked to slow down", `Checking for sequels paused after ${at} titles, so some sequels may be missing below. Wait a minute and try again, or the rest will be checked next time you open this page.`]
+    const [title, text] = /limiting|too long|busy/i.test(st.bg.paused)
+      ? ["MyAnimeList is busy or asked to slow down", `Checking for sequels paused after ${at} titles, so some sequels may be missing below. Wait a minute and try again, or the rest will be checked next time you open this page.`]
       : ["Checking for sequels stopped", `It stopped after ${at} titles (${st.bg.paused.replace(/\.$/, "")}), so some sequels may be missing below. Try again, or the rest will be checked next time you open this page.`];
     return `<div class="notice warn" role="status">
       <span class="notice-icon" aria-hidden="true">!</span>

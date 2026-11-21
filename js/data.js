@@ -100,16 +100,25 @@ function entryFromApi(item, kind) {
 
 /* ---------- relay ---------- */
 
+MALD.RELAY_TIMEOUT = 60000; // ms before giving up on the relay
+
 MALD.relayReady = () => !!(window.MALD_CONFIG && window.MALD_CONFIG.relay);
 
 async function relay(path, params) {
   const base = ((window.MALD_CONFIG && window.MALD_CONFIG.relay) || "").replace(/\/+$/, "");
   if (!base) throw new Error("Live loading isn't set up on this site yet. You can still upload an XML export.");
   let res;
+  // Give up after a minute instead of waiting forever (MAL sometimes stops answering when it's busy).
+  const stop = new AbortController();
+  const timer = setTimeout(() => stop.abort(), MALD.RELAY_TIMEOUT);
   try {
-    res = await fetch(`${base}${path}?${new URLSearchParams(params)}`);
+    res = await fetch(`${base}${path}?${new URLSearchParams(params)}`, { signal: stop.signal });
   } catch {
-    throw new Error("Couldn't reach the relay. Check your connection and try again.");
+    throw new Error(stop.signal.aborted
+      ? "MyAnimeList took too long to answer. It may be busy or limiting requests; try again in a minute."
+      : "Couldn't reach the relay. Check your connection and try again.");
+  } finally {
+    clearTimeout(timer);
   }
   let body = null;
   try { body = await res.json(); } catch { /* not JSON */ }

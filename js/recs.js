@@ -15,7 +15,7 @@
   };
   const DONE = ["completed", "current", "on_hold", "dropped"]; // already started: never suggested
   MALD.FIRST_PASS = 250;     // titles checked before showing results; the rest are checked in the background
-  MALD.BG_PAUSE = 800;       // pause between background checks (ms), to go easy on MyAnimeList
+  MALD.BG_PAUSE = 2500;      // pause between background checks (ms), to go easy on MyAnimeList
   const MAX_FAVORITES = 25;  // titles whose recommendations count
   const MAX_REC_DETAILS = 120; // recommended titles outside your list whose details are looked up
 
