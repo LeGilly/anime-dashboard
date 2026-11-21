@@ -15,7 +15,34 @@
   };
   const DONE = ["completed", "current", "on_hold", "dropped"]; // already started: never suggested
   MALD.FIRST_PASS = 250;     // titles checked before showing results; the rest are checked in the background
-  MALD.BG_PAUSE = 2500;      // pause between background checks (ms), to go easy on MyAnimeList
+  MALD.BG_PAUSE = 3000;      // starting pause between background checks (ms), to go easy on MyAnimeList
+  MALD.MAX_PAUSE = 30000;    // slowest pace after repeated slowdowns
+  MALD.isSlowdown = (msg) => /limiting|too long|busy/i.test(msg || "");
+
+  // Remembered between visits (not list data): when MyAnimeList last asked to slow down, and how fast to go.
+  MALD.pace = {
+    get() {
+      const p = MALD.readCache("mald:pace");
+      return { until: p.until || 0, pause: Math.max(MALD.BG_PAUSE, p.pause || MALD.BG_PAUSE) };
+    },
+    // Slowed down: wait 5 minutes (10 if it happens again soon), and halve the speed.
+    slowDown() {
+      const p = MALD.pace.get();
+      const again = Date.now() - (p.until || 0) < 10 * 60 * 1000;
+      MALD.writeCache("mald:pace", { until: Date.now() + (again ? 10 : 5) * 60 * 1000, pause: Math.min(MALD.MAX_PAUSE, p.pause * 2) });
+    },
+    // A full run went fine: speed back up a little.
+    relax() {
+      const p = MALD.pace.get();
+      MALD.writeCache("mald:pace", { until: 0, pause: Math.max(MALD.BG_PAUSE, Math.round(p.pause * 0.75)) });
+    },
+    // "Try again now": skip the wait, keep the slower speed.
+    skipWait() {
+      const p = MALD.pace.get();
+      MALD.writeCache("mald:pace", { until: 0, pause: p.pause });
+    },
+    coolingFor() { return Math.max(0, MALD.pace.get().until - Date.now()); },
+  };
   const MAX_FAVORITES = 25;  // titles whose recommendations count
   const MAX_REC_DETAILS = 120; // recommended titles outside your list whose details are looked up
 
@@ -149,7 +176,8 @@
     MALD.writeCache(plan.key, plan.cache);
   };
 
-  MALD.loadDetails = async function (kind, ids) {
+  // offline: only use what's saved (while MyAnimeList needs a break). pause: wait between calls.
+  MALD.loadDetails = async function (kind, ids, { offline = false, pause = 0 } = {}) {
     const key = `mald:details:${kind}`;
     const cache = MALD.readCache(key);
     const now = Date.now();
@@ -157,11 +185,12 @@
     const todo = [];
     for (const id of ids) {
       const hit = cache[id];
-      if (hit && now - hit[0] < MALD.DETAILS_TTL) details.set(id, hit[1]); else todo.push(id);
+      if (hit && (offline || now - hit[0] < MALD.DETAILS_TTL)) details.set(id, hit[1]); else if (!offline) todo.push(id);
     }
     let error = null;
     try {
       for (let i = 0; i < todo.length; i += 25) {
+        if (i && pause) await new Promise((r) => setTimeout(r, pause));
         const res = await MALD.relay("/details", { type: kind, ids: todo.slice(i, i + 25).join(",") });
         for (const node of res.items) {
           const d = node.missing ? { missing: true } : MALD.detailsFromNode(node, kind);

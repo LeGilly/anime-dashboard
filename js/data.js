@@ -269,7 +269,7 @@ MALD.loadSaved = function () {
 // Removes the saved list and all cached title details from this browser.
 MALD.forget = function () {
   try {
-    ["mald:last", "mald:details:anime", "mald:details:manga", "mald:links:anime", "mald:links:manga"].forEach((k) => localStorage.removeItem(k));
+    ["mald:last", "mald:details:anime", "mald:details:manga", "mald:links:anime", "mald:links:manga", "mald:pace"].forEach((k) => localStorage.removeItem(k));
   } catch { /* ignore */ }
 };
 MALD.pruneDetails = function () {

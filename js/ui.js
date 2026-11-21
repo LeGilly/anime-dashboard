@@ -423,6 +423,7 @@
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
   // Next up: check the most important titles first and show results, then check the rest in the background.
+  // If MyAnimeList asks to slow down at any point, stop contacting it, show what's saved, and resume after a break.
   async function loadRecs(kind, entries) {
     const st = (S.recData[kind] = { status: "loading", done: 0, total: 0 });
     const label = kind === "anime" ? "anime" : "manga";
@@ -435,42 +436,56 @@
     const plan = MALD.planLinks(kind, seeds);
     const top = new Set(seeds.slice(0, MALD.FIRST_PASS));
     const first = plan.missing.filter((id) => top.has(id));
-    const later = [...plan.missing.filter((id) => !top.has(id)), ...plan.stale];
-    st.total = first.length;
+    const todo = [...first, ...plan.missing.filter((id) => !top.has(id)), ...plan.stale];
+    const done = new Set();
+    let slow = MALD.pace.coolingFor() > 0; // still on a break from last time
     let error = null;
-    try {
-      for (let i = 0; i < first.length; i += 25) {
-        await MALD.fetchLinks(plan, first.slice(i, i + 25));
-        st.done = Math.min(first.length, i + 25);
-        const el = $("recProgress");
-        if (el) el.textContent = `Looking at your ${label} on MyAnimeList… ${st.done}/${st.total}`;
-      }
-    } catch (err) {
-      error = err.message;
+    const pace = MALD.pace.get().pause;
+    const stop = (err) => { if (MALD.isSlowdown(err.message)) { MALD.pace.slowDown(); slow = true; } else error = err.message; };
+
+    if (!slow) {
+      st.total = first.length;
+      try {
+        for (let i = 0; i < first.length; i += 25) {
+          if (i) await sleep(Math.min(pace, 1500));
+          const chunk = first.slice(i, i + 25);
+          await MALD.fetchLinks(plan, chunk);
+          chunk.forEach((id) => done.add(id));
+          st.done = done.size;
+          const el = $("recProgress");
+          if (el) el.textContent = `Looking at your ${label} on MyAnimeList… ${st.done}/${st.total}`;
+        }
+      } catch (err) { stop(err); }
     }
-    const el = $("recProgress");
-    if (el) el.textContent = "Looking up suggested titles…";
-    const det = await MALD.loadDetails(kind, MALD.recDetailIds(entries, plan.links));
-    Object.assign(st, { status: "ready", links: plan.links, details: det.details, error: error || det.error,
-      bg: { done: 0, total: error ? 0 : later.length, running: !error && later.length > 0, paused: null } });
+    if (!slow && !error) {
+      const el = $("recProgress");
+      if (el) el.textContent = "Looking up suggested titles…";
+    }
+    const det = await MALD.loadDetails(kind, MALD.recDetailIds(entries, plan.links), { offline: slow || !!error, pause: Math.min(pace, 1500) });
+    if (det.error) stop({ message: det.error });
+    const left = todo.filter((id) => !done.has(id));
+    Object.assign(st, { status: "ready", links: plan.links, details: det.details, error,
+      bg: { done: 0, total: left.length, running: !slow && !error && left.length > 0, slow } });
     refreshNext(kind, entries);
-    if (st.bg.running) checkInBackground(kind, entries, st, plan, later);
+    if (st.bg.running) checkInBackground(kind, entries, st, plan, left);
+    else if (slow) resumeLater(kind, st);
   }
 
   async function checkInBackground(kind, entries, st, plan, ids) {
     let sinceUpdate = 0;
     for (let i = 0; i < ids.length; i += 25) {
-      await sleep(MALD.BG_PAUSE);
+      await sleep(MALD.pace.get().pause);
       if (S.recData[kind] !== st) return; // another list was loaded meanwhile
       const chunk = ids.slice(i, i + 25);
       try {
         await MALD.fetchLinks(plan, chunk);
       } catch (err) {
-        // MAL said no (often "slow down"): stop here; the rest is checked on the next visit.
         st.bg.running = false;
-        st.bg.paused = err.message;
-        updateBgNote(kind);
-        break;
+        if (MALD.isSlowdown(err.message)) { MALD.pace.slowDown(); st.bg.slow = true; resumeLater(kind, st); }
+        else st.error = err.message;
+        st.bg.total -= st.bg.done; st.bg.done = 0;
+        refreshNext(kind, entries);
+        return;
       }
       st.bg.done = Math.min(ids.length, i + 25);
       sinceUpdate += chunk.length;
@@ -478,13 +493,27 @@
       const last = st.bg.done >= ids.length;
       if (sinceUpdate >= 150 || last) {
         sinceUpdate = 0;
-        const det = await MALD.loadDetails(kind, MALD.recDetailIds(entries, plan.links));
+        const det = await MALD.loadDetails(kind, MALD.recDetailIds(entries, plan.links), { pause: 1500 });
         for (const [id, d] of det.details) st.details.set(id, d);
-        if (last) st.bg.running = false;
+        if (det.error && MALD.isSlowdown(det.error)) {
+          MALD.pace.slowDown(); st.bg.running = false; st.bg.slow = true;
+          st.bg.total -= st.bg.done; st.bg.done = 0;
+          resumeLater(kind, st); refreshNext(kind, entries); return;
+        }
+        if (last) { st.bg.running = false; MALD.pace.relax(); }
         refreshNext(kind, entries);
       }
     }
-    if (st.bg.paused) refreshNext(kind, entries);
+  }
+
+  // After a break, start again by itself if the page is still open (saved checks are reused).
+  function resumeLater(kind, st) {
+    clearTimeout(st.resumeTimer);
+    st.resumeTimer = setTimeout(() => {
+      if (S.recData[kind] !== st) return;
+      delete S.recData[kind];
+      if (S.tab === "next" && S.kind === kind) render();
+    }, MALD.pace.coolingFor() + 1000);
   }
 
   // Redraw Next up with new results, but never while a filter list is open (it would close under your finger).
@@ -501,13 +530,20 @@
     if (st.bg && st.bg.running) return `Checking your other ${label} for sequels… ${MALD.fmtNum(st.bg.done)}/${MALD.fmtNum(st.bg.total)}. Results update as it goes.`;
     return "";
   }
-  // Shown as a warning banner when checking had to stop.
+  // One warning banner for anything that stopped the checks: a MyAnimeList slowdown, or another error.
   function pausedBanner(st) {
-    if (!(st.bg && st.bg.paused)) return "";
-    const at = `${MALD.fmtNum(st.bg.done)} of ${MALD.fmtNum(st.bg.total)}`;
-    const [title, text] = /limiting|too long|busy/i.test(st.bg.paused)
-      ? ["MyAnimeList is busy or asked to slow down", `Checking for sequels paused after ${at} titles, so some sequels may be missing below. Wait a minute and try again, or the rest will be checked next time you open this page.`]
-      : ["Checking for sequels stopped", `It stopped after ${at} titles (${st.bg.paused.replace(/\.$/, "")}), so some sequels may be missing below. Try again, or the rest will be checked next time you open this page.`];
+    const left = st.bg ? st.bg.total - st.bg.done : 0;
+    let title, text;
+    if (st.bg && st.bg.slow) {
+      const mins = Math.max(1, Math.ceil(MALD.pace.coolingFor() / 60000));
+      title = "MyAnimeList is busy or asked to slow down";
+      text = `To give it a break, this page won't contact MyAnimeList for about ${mins} minute${mins === 1 ? "" : "s"}. `
+        + (left ? `${MALD.fmtNum(left)} titles still need checking for sequels, so some may be missing below. ` : "Some suggestions may be missing below. ")
+        + "Checking resumes by itself, and more slowly, if this page stays open.";
+    } else if (st.error) {
+      title = "Some suggestions couldn't be loaded";
+      text = `${st.error.replace(/\.$/, "")}.${left ? ` ${MALD.fmtNum(left)} titles still need checking for sequels.` : ""}`;
+    } else return "";
     return `<div class="notice warn" role="status">
       <span class="notice-icon" aria-hidden="true">!</span>
       <div><strong>${esc(title)}</strong><p>${esc(text)}</p></div>
@@ -615,7 +651,6 @@
           !lOn ? "Any length" : !lOn.length ? "No length" : lengthOpts.filter(([v]) => lOn.includes(v)).map(([, t]) => t.replace(/ \(.*\)/, "")).join(", "), !!lOn)}
         <label class="check"><input type="checkbox" id="rAiring"${N.airing ? " checked" : ""}> Include ${anime ? "airing" : "ongoing"}</label>
       </div>
-      ${st.error ? `<p class="sub warn">${esc(st.error)} <button class="link" data-act="rretry">Try again</button></p>` : ""}
       ${res.basis === "empty" ? `<p class="basis">There's nothing ${anime ? "watched" : "read"}, ${anime ? "watching" : "reading"} or dropped on this list yet, so these picks only use your ${plan.toLowerCase()} and MyAnimeList scores. They'll get more personal as your list grows.</p>`
         : `<p class="basis">${esc(res.basis)}</p>`}
       <p class="hint center${st.bg && st.bg.running ? " busy" : ""}" id="recBg"${bgNoteText(st) ? "" : " hidden"}>${esc(bgNoteText(st))}</p>
@@ -861,7 +896,12 @@
       else if (t.dataset.act === "rmore") { S.next.shown += 12; render(); }
       else if (t.dataset.act === "cmore") { S.next.contShown += 12; render(); }
       else if (t.dataset.act === "smore") { S.next.soonShown += 12; render(); }
-      else if (t.dataset.act === "rretry") { delete S.recData[S.kind]; render(); }
+      else if (t.dataset.act === "rretry") {
+        const old = S.recData[S.kind];
+        if (old) clearTimeout(old.resumeTimer);
+        MALD.pace.skipWait();
+        delete S.recData[S.kind]; render();
+      }
       else if (t.dataset.expand) { S.expand[t.dataset.expand] = !S.expand[t.dataset.expand]; render(); }
       else if (t.dataset.gall) { S.groupAll[t.dataset.gall] = !S.groupAll[t.dataset.gall]; render(); }
       else if (t.dataset.hmetric) { S.histMetric = t.dataset.hmetric; render(); }
