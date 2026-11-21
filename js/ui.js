@@ -418,22 +418,104 @@
   // The ticked values, or null when everything is ticked (no filtering).
   const ticked = (all, off) => (off.length ? all.filter((v) => !off.includes(v)) : null);
 
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  // Next up: check the most important titles first and show results, then check the rest in the background.
   async function loadRecs(kind, entries) {
     const st = (S.recData[kind] = { status: "loading", done: 0, total: 0 });
+    const label = kind === "anime" ? "anime" : "manga";
     if (!MALD.relayReady()) {
       Object.assign(st, { status: "ready", links: new Map(), details: new Map(), error: "Suggestions from outside your list need the relay, which isn't set up on this site." });
-    } else {
-      const { links, error } = await MALD.loadLinks(kind, MALD.recSeeds(entries), (done, total) => {
-        st.done = done; st.total = total;
-        const el = $("recProgress");
-        if (el) el.textContent = `Looking at your ${kind === "anime" ? "anime" : "manga"} on MyAnimeList… ${done}/${total}`;
-      });
-      const el = $("recProgress");
-      if (el) el.textContent = "Looking up suggested titles…";
-      const det = await MALD.loadDetails(kind, MALD.recDetailIds(entries, links));
-      Object.assign(st, { status: "ready", links, details: det.details, error: error || det.error });
+      refreshNext(kind, entries);
+      return;
     }
-    if (S.tab === "next" && S.kind === kind && S.data && S.data[kind] === entries) render();
+    const seeds = MALD.recSeeds(entries);
+    const plan = MALD.planLinks(kind, seeds);
+    const top = new Set(seeds.slice(0, MALD.FIRST_PASS));
+    const first = plan.missing.filter((id) => top.has(id));
+    const later = [...plan.missing.filter((id) => !top.has(id)), ...plan.stale];
+    st.total = first.length;
+    let error = null;
+    try {
+      for (let i = 0; i < first.length; i += 25) {
+        await MALD.fetchLinks(plan, first.slice(i, i + 25));
+        st.done = Math.min(first.length, i + 25);
+        const el = $("recProgress");
+        if (el) el.textContent = `Looking at your ${label} on MyAnimeList… ${st.done}/${st.total}`;
+      }
+    } catch (err) {
+      error = err.message;
+    }
+    const el = $("recProgress");
+    if (el) el.textContent = "Looking up suggested titles…";
+    const det = await MALD.loadDetails(kind, MALD.recDetailIds(entries, plan.links));
+    Object.assign(st, { status: "ready", links: plan.links, details: det.details, error: error || det.error,
+      bg: { done: 0, total: error ? 0 : later.length, running: !error && later.length > 0, paused: null } });
+    refreshNext(kind, entries);
+    if (st.bg.running) checkInBackground(kind, entries, st, plan, later);
+  }
+
+  async function checkInBackground(kind, entries, st, plan, ids) {
+    let sinceUpdate = 0;
+    for (let i = 0; i < ids.length; i += 25) {
+      await sleep(MALD.BG_PAUSE);
+      if (S.recData[kind] !== st) return; // another list was loaded meanwhile
+      const chunk = ids.slice(i, i + 25);
+      try {
+        await MALD.fetchLinks(plan, chunk);
+      } catch (err) {
+        // MAL said no (often "slow down"): stop here; the rest is checked on the next visit.
+        st.bg.running = false;
+        st.bg.paused = err.message;
+        updateBgNote(kind);
+        break;
+      }
+      st.bg.done = Math.min(ids.length, i + 25);
+      sinceUpdate += chunk.length;
+      updateBgNote(kind);
+      const last = st.bg.done >= ids.length;
+      if (sinceUpdate >= 150 || last) {
+        sinceUpdate = 0;
+        const det = await MALD.loadDetails(kind, MALD.recDetailIds(entries, plan.links));
+        for (const [id, d] of det.details) st.details.set(id, d);
+        if (last) st.bg.running = false;
+        refreshNext(kind, entries);
+      }
+    }
+    if (st.bg.paused) refreshNext(kind, entries);
+  }
+
+  // Redraw Next up with new results, but never while a filter list is open (it would close under your finger).
+  function refreshNext(kind, entries) {
+    const st = S.recData[kind];
+    if (!(S.tab === "next" && S.kind === kind && S.data && S.data[kind] === entries)) return;
+    if (S.openMulti) { st.dirty = true; return; }
+    st.dirty = false;
+    render();
+  }
+
+  function bgNoteText(st) {
+    const label = S.kind === "anime" ? "anime" : "manga";
+    if (st.bg && st.bg.running) return `Checking your other ${label} for sequels… ${MALD.fmtNum(st.bg.done)}/${MALD.fmtNum(st.bg.total)}. Results update as it goes.`;
+    return "";
+  }
+  // Shown as a warning banner when checking had to stop.
+  function pausedBanner(st) {
+    if (!(st.bg && st.bg.paused)) return "";
+    const at = `${MALD.fmtNum(st.bg.done)} of ${MALD.fmtNum(st.bg.total)}`;
+    const [title, text] = /limiting/i.test(st.bg.paused)
+      ? ["MyAnimeList asked to slow down", `Checking for sequels paused after ${at} titles, so some sequels may be missing below. Wait a minute and try again, or the rest will be checked next time you open this page.`]
+      : ["Checking for sequels stopped", `It stopped after ${at} titles (${st.bg.paused.replace(/\.$/, "")}), so some sequels may be missing below. Try again, or the rest will be checked next time you open this page.`];
+    return `<div class="notice warn" role="status">
+      <span class="notice-icon" aria-hidden="true">!</span>
+      <div><strong>${esc(title)}</strong><p>${esc(text)}</p></div>
+      <button type="button" data-act="rretry">Try again now</button>
+    </div>`;
+  }
+  function updateBgNote(kind) {
+    const el = $("recBg");
+    const st = S.recData[kind];
+    if (el && S.kind === kind) { el.textContent = bgNoteText(st); el.hidden = !el.textContent; el.classList.toggle("busy", !!(st.bg && st.bg.running)); }
   }
 
   function renderNext(view, entries) {
@@ -534,6 +616,8 @@
       ${st.error ? `<p class="sub warn">${esc(st.error)} <button class="link" data-act="rretry">Try again</button></p>` : ""}
       ${res.basis === "empty" ? `<p class="basis">There's nothing ${anime ? "watched" : "read"}, ${anime ? "watching" : "reading"} or dropped on this list yet, so these picks only use your ${plan.toLowerCase()} and MyAnimeList scores. They'll get more personal as your list grows.</p>`
         : `<p class="basis">${esc(res.basis)}</p>`}
+      <p class="hint center${st.bg && st.bg.running ? " busy" : ""}" id="recBg"${bgNoteText(st) ? "" : " hidden"}>${esc(bgNoteText(st))}</p>
+      ${pausedBanner(st)}
       ${S.prefs.blur ? `<p class="hint center">18+ titles are left out while "Blur 18+ covers" is on in Settings.</p>` : ""}
       ${section("Continue a series", `Sequels to ${anime ? "shows" : "series"} you finished.`, res.cont, "No sequels waiting for you with these filters.", { limit: N.contShown, more: "cmore", extra: "" })}
       ${section("Recommended for you", "Based on what you rate highly, and what MyAnimeList users recommend from your favorites.", res.recommended, "Nothing matches these filters.", { limit: N.shown, more: "rmore" })}
@@ -745,6 +829,8 @@
       else if (t.classList.contains("msel")) {
         const key = t.closest("[data-multi]").dataset.multi;
         S.openMulti = S.openMulti === key ? null : key;
+        const pending = S.recData[S.kind];
+        if (!S.openMulti && pending && pending.dirty) { pending.dirty = false; render(); return; }
         view.querySelectorAll("[data-multi]").forEach((m) => {
           const open = m.dataset.multi === S.openMulti;
           m.querySelector(".mpanel").hidden = !open;
@@ -782,6 +868,9 @@
         m.querySelector(".mpanel").hidden = true;
         m.querySelector(".msel").setAttribute("aria-expanded", "false");
       });
+      // New results arrived while the list was open: show them now.
+      const st = S.recData[S.kind];
+      if (S.tab === "next" && st && st.dirty) { st.dirty = false; render(); }
     };
     document.addEventListener("click", (ev) => { if (!ev.target.closest("[data-multi]")) closeMulti(); });
     document.addEventListener("keydown", (ev) => { if (ev.key === "Escape") closeMulti(); });

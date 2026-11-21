@@ -272,7 +272,8 @@ MALD.pruneDetails = function () {
     if (changed) saveDetailsCache(kind, cache);
     const links = MALD.readCache(`mald:links:${kind}`);
     let linksChanged = false;
-    for (const id in links) if (!(now - links[id][0] < MALD.LINKS_TTL)) { delete links[id]; linksChanged = true; }
+    // Checks older than a week are refreshed in the background but still used meanwhile; after 30 days they're dropped.
+    for (const id in links) if (!(now - links[id][0] < 30 * 24 * 3600 * 1000)) { delete links[id]; linksChanged = true; }
     if (linksChanged) MALD.writeCache(`mald:links:${kind}`, links);
   }
 };

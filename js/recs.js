@@ -14,9 +14,10 @@
     alternative_version: "Another version of", parent_story: "Main story of", full_story: "Full story of",
   };
   const DONE = ["completed", "current", "on_hold", "dropped"]; // already started: never suggested
-  const MAX_SEEDS = 250;     // titles whose recommendations and sequels are looked up
+  MALD.FIRST_PASS = 250;     // titles checked before showing results; the rest are checked in the background
+  MALD.BG_PAUSE = 800;       // pause between background checks (ms), to go easy on MyAnimeList
   const MAX_FAVORITES = 25;  // titles whose recommendations count
-  const MAX_DETAILS = 160;   // titles outside your list whose details are looked up
+  const MAX_REC_DETAILS = 120; // recommended titles outside your list whose details are looked up
 
   MALD.isAdult = (e) => (e.nsfw && e.nsfw !== "white") || e.genres.some((g) => ADULT.includes(g));
   MALD.isUpcoming = (e) => UPCOMING.includes(e.airStatus);
@@ -101,41 +102,51 @@
     const favs = favorites(entries, signals(entries));
     const rest = entries.filter((e) => e.status === "completed" || e.status === "current")
       .sort((a, b) => b.score - a.score || (b.updatedAt || "").localeCompare(a.updatedAt || ""));
-    return [...new Set([...favs, ...rest].map((e) => e.id))].slice(0, MAX_SEEDS);
+    return [...new Set([...favs, ...rest].map((e) => e.id))];
   };
 
   /* ---------- fetching (cached in the browser) ---------- */
 
-  MALD.loadLinks = async function (kind, ids, onProgress) {
+  // Saved per title: only the numbers needed ([id, recommenders] and [id, relation]),
+  // so even a list of thousands fits in the browser. Names and covers come from the details.
+  const slimLinks = (l) => ({
+    id: l.id,
+    recs: (l.recs || []).map((r) => (r.length > 2 ? [r[0], r[3]] : r)),
+    related: (l.related || []).map((r) => (r.length > 2 ? [r[0], r[3]] : r)),
+  });
+
+  // What's already saved, and what still needs checking: missing titles first, then ones saved over a week ago.
+  // Old saved data is still used until it's refreshed.
+  MALD.planLinks = function (kind, seeds) {
     const key = `mald:links:${kind}`;
     const cache = MALD.readCache(key);
     const now = Date.now();
     const links = new Map();
-    const todo = [];
-    for (const id of ids) {
+    const missing = [];
+    const stale = [];
+    let resave = false;
+    for (const id of seeds) {
       const hit = cache[id];
-      if (hit && now - hit[0] < MALD.LINKS_TTL) links.set(id, hit[1]); else todo.push(id);
+      if (!hit) { missing.push(id); continue; }
+      const v = slimLinks(hit[1]);
+      if (v.recs.some((r, i) => hit[1].recs[i].length > 2) || v.related.some((r, i) => hit[1].related[i].length > 2)) { cache[id] = [hit[0], v]; resave = true; }
+      links.set(id, v);
+      if (!(now - hit[0] < MALD.LINKS_TTL)) stale.push(id);
     }
-    let done = ids.length - todo.length;
-    if (onProgress) onProgress(done, ids.length);
-    let error = null;
-    try {
-      for (let i = 0; i < todo.length; i += 25) {
-        const chunk = todo.slice(i, i + 25);
-        const res = await MALD.relay("/links", { type: kind, ids: chunk.join(",") });
-        for (const it of res.items) {
-          const v = it.missing ? { id: it.id, recs: [], related: [] } : it;
-          cache[it.id] = [now, v];
-          links.set(it.id, v);
-        }
-        done += chunk.length;
-        if (onProgress) onProgress(done, ids.length);
-      }
-    } catch (err) {
-      error = err.message;
+    if (resave) MALD.writeCache(key, cache);
+    return { kind, key, cache, links, missing, stale };
+  };
+
+  // Checks up to 25 titles (one relay call) and saves the results.
+  MALD.fetchLinks = async function (plan, ids) {
+    const res = await MALD.relay("/links", { type: plan.kind, ids: ids.join(",") });
+    const now = Date.now();
+    for (const it of res.items) {
+      const v = it.missing ? { id: it.id, recs: [], related: [] } : slimLinks(it);
+      plan.cache[it.id] = [now, v];
+      plan.links.set(it.id, v);
     }
-    MALD.writeCache(key, cache);
-    return { links, error };
+    MALD.writeCache(plan.key, plan.cache);
   };
 
   MALD.loadDetails = async function (kind, ids) {
@@ -172,9 +183,9 @@
     const favs = favorites(entries, profile);
     const byId = new Map(entries.map((e) => [e.id, e]));
     const cands = new Map();
-    const cand = (id, title, image) => {
+    const cand = (id) => {
       let c = cands.get(id);
-      if (!c) cands.set(id, (c = { id, title, image, recPts: 0, recBy: [], seqOf: [], relOf: [] }));
+      if (!c) cands.set(id, (c = { id, recPts: 0, recBy: [], seqOf: [], relOf: [] }));
       return c;
     };
     // MAL users' recommendations from your favorites.
@@ -182,9 +193,9 @@
       const l = links.get(f.id);
       if (!l) continue;
       const w = Math.max(0.3, profile.sig.get(f.id) + 1);
-      for (const [id, title, image, num] of l.recs) {
+      for (const [id, num] of l.recs) {
         const pts = w * Math.log2(1 + num);
-        const c = cand(id, title, image);
+        const c = cand(id);
         c.recPts += pts;
         c.recBy.push({ e: f, pts });
       }
@@ -194,15 +205,15 @@
       if (e.status !== "completed" && e.status !== "current") continue;
       const l = links.get(e.id);
       if (!l) continue;
-      for (const [id, title, image, rel] of l.related) {
+      for (const [id, rel] of l.related) {
         if (!RELATION_TEXT[rel]) continue;
-        const c = cand(id, title, image);
+        const c = cand(id);
         if (rel === "sequel" && e.status === "completed") c.seqOf.push(e);
         c.relOf.push({ e, rel });
       }
     }
     // Plan-to-watch titles are always candidates.
-    for (const e of entries) if (e.status === "planned") cand(e.id, e.title, e.image);
+    for (const e of entries) if (e.status === "planned") cand(e.id);
     // Drop anything you've already started.
     for (const [id] of cands) {
       const mine = byId.get(id);
@@ -217,7 +228,8 @@
     const off = [...cands.values()].filter((c) => !byId.has(c.id));
     const linked = off.filter((c) => c.seqOf.length || c.relOf.length);
     const recs = off.filter((c) => !c.seqOf.length && !c.relOf.length).sort((a, b) => b.recPts - a.recPts);
-    return [...linked, ...recs].slice(0, MAX_DETAILS).map((c) => c.id);
+    // Every sequel or related title is needed (for "Continue a series" and "Coming up"); recommendations only the strongest.
+    return [...linked, ...recs.slice(0, MAX_REC_DETAILS)].map((c) => c.id);
   };
 
   /* ---------- scoring ---------- */
@@ -256,7 +268,7 @@
       if (!e) {
         const d = details.get(c.id);
         if (!d || d.missing) continue; // can't judge a title we know nothing about
-        e = MALD.makeEntry(Object.assign({ id: c.id, kind, title: c.title, image: c.image }, d, { status: null }));
+        e = MALD.makeEntry(Object.assign({ id: c.id, kind }, d, { status: null }));
       }
       if (SKIP_TYPES.includes(e.mediaType)) continue;
 
