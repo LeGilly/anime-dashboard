@@ -104,7 +104,107 @@ MALD.RELAY_TIMEOUT = 60000; // ms before giving up on the relay
 
 MALD.relayReady = () => !!(window.MALD_CONFIG && window.MALD_CONFIG.relay);
 
-async function relay(path, params) {
+/* ---------- one line for MyAnimeList ----------
+   Every request that reaches MyAnimeList (through the relay) waits its turn here, one at a time.
+   MAL doesn't publish its limits, so this spends a budget: up to BURST requests at once, then one every RATE ms.
+   Priority decides who goes first: 0 = something you did (load a list, open your list, edit), which never waits
+   for the budget; 1 = Next up while you wait for it; 2 = background checks.
+   A group (such as "next:anime") can be paused: its requests stay in line until it's resumed. */
+const net = { BURST: 20, RATE: 1000, queue: [], paused: new Set(), tokens: 20, at: Date.now(), busy: false, seq: 0, wake: null };
+const LOG_KEY = "mald:netlog";
+const LOG_MAX = 400;
+
+function refill() {
+  const now = Date.now();
+  net.tokens = Math.min(net.BURST, net.tokens + (now - net.at) / net.RATE);
+  net.at = now;
+}
+
+async function pump() {
+  if (net.busy) return;
+  net.busy = true;
+  try {
+    for (;;) {
+      const ready = net.queue.filter((j) => !net.paused.has(j.group));
+      if (!ready.length) break;
+      ready.sort((a, b) => a.priority - b.priority || a.seq - b.seq);
+      const job = ready[0];
+      refill();
+      const need = Math.min(job.cost, net.BURST);
+      if (job.priority > 0 && net.tokens < need) {
+        // Wait for the budget, but wake early if something more urgent arrives (or a group is paused/resumed).
+        await new Promise((r) => { net.wake = r; setTimeout(r, Math.ceil((need - net.tokens) * net.RATE)); });
+        net.wake = null;
+        continue;
+      }
+      net.queue.splice(net.queue.indexOf(job), 1);
+      net.tokens -= job.cost;
+      const t0 = Date.now();
+      try {
+        job.resolve(await job.work());
+        logRequest(job, t0, "ok");
+      } catch (err) {
+        logRequest(job, t0, err.mal || err.status || "error");
+        job.reject(err);
+      }
+    }
+  } finally {
+    net.busy = false;
+  }
+}
+const nudge = () => { if (net.wake) net.wake(); pump(); };
+
+// A short record of recent requests (kept in this browser), to see what leads up to a MAL slowdown.
+function logRequest(job, t0, result) {
+  if (!job.cost) return;
+  const now = Date.now();
+  const log = MALD.readNetLog();
+  log.push([t0, job.what, job.cost, job.priority, t0 - job.queued, now - t0, result]);
+  try { localStorage.setItem(LOG_KEY, JSON.stringify(log.slice(-LOG_MAX))); } catch { /* ignore */ }
+}
+MALD.readNetLog = () => { try { const l = JSON.parse(localStorage.getItem(LOG_KEY)); return Array.isArray(l) ? l : []; } catch { return []; } };
+MALD.netLogText = function () {
+  const rows = MALD.readNetLog().map(([t, what, cost, pr, waited, ms, result]) =>
+    [new Date(t).toISOString().slice(11, 19), what, cost, pr, waited, ms, result].join("\t"));
+  const pace = MALD.readCache("mald:pace");
+  return [`Anime Dashboard request log · ${new Date().toISOString()} · ${navigator.userAgent}`,
+    `budget ${net.BURST} at once, then 1 every ${net.RATE} ms · background pause ${pace.pause || MALD.REQ_PAUSE} ms per title`,
+    "time (UTC)\twhat\tMAL requests\tpriority\twaited ms\ttook ms\tresult", ...rows].join("\n");
+};
+
+MALD.net = {
+  // Runs work() when it's its turn. cost: how many MAL requests it makes (0 = none, skips the budget).
+  run(work, { cost = 1, priority = 0, group = null, what = "" } = {}) {
+    return new Promise((resolve, reject) => {
+      net.queue.push({ work, cost, priority, group, what, resolve, reject, seq: net.seq++, queued: Date.now() });
+      nudge();
+    });
+  },
+  pause(group) { net.paused.add(group); },
+  resume(group) { if (net.paused.delete(group)) nudge(); },
+  // Drops a group's waiting requests (its results are no longer wanted).
+  cancel(group) {
+    const gone = net.queue.filter((j) => j.group === group);
+    net.queue = net.queue.filter((j) => j.group !== group);
+    net.paused.delete(group);
+    gone.forEach((j) => j.reject(Object.assign(new Error("Cancelled."), { cancelled: true })));
+  },
+  waiting: (group) => net.queue.some((j) => j.group === group),
+  config: net,
+};
+
+// What a relay call costs in MAL requests: one per title looked up; a list is a page or two.
+function costOf(path, params) {
+  if (path === "/details" || path === "/links") return String(params.ids || "").split(",").filter(Boolean).length;
+  return 1;
+}
+
+function relay(path, params, { priority = 0, group = null } = {}) {
+  const what = path.slice(1) + (params.type ? `:${params.type}` : "");
+  return MALD.net.run(() => relayNow(path, params), { cost: costOf(path, params), priority, group, what });
+}
+
+async function relayNow(path, params) {
   const base = ((window.MALD_CONFIG && window.MALD_CONFIG.relay) || "").replace(/\/+$/, "");
   if (!base) throw new Error("Live loading isn't set up on this site yet. You can still upload an XML export.");
   let res;
@@ -114,15 +214,15 @@ async function relay(path, params) {
   try {
     res = await fetch(`${base}${path}?${new URLSearchParams(params)}`, { signal: stop.signal });
   } catch {
-    throw new Error(stop.signal.aborted
+    throw Object.assign(new Error(stop.signal.aborted
       ? "MyAnimeList took too long to answer. It may be busy or limiting requests; try again in a minute."
-      : "Couldn't reach the relay. Check your connection and try again.");
+      : "Couldn't reach the relay. Check your connection and try again."), { mal: stop.signal.aborted ? "timeout" : "offline" });
   } finally {
     clearTimeout(timer);
   }
   let body = null;
   try { body = await res.json(); } catch { /* not JSON */ }
-  if (!res.ok) throw new Error((body && body.error) || `The relay answered with error ${res.status}.`);
+  if (!res.ok) throw Object.assign(new Error((body && body.error) || `The relay answered with error ${res.status}.`), { status: res.status, mal: body && body.mal });
   return body;
 }
 
@@ -284,7 +384,7 @@ MALD.loadMine = function () {
 // Removes the saved list and all cached title details from this browser.
 MALD.forget = function () {
   try {
-    ["mald:last", "mald:mine", "mald:me", "mald:details:anime", "mald:details:manga", "mald:links:anime", "mald:links:manga", "mald:pace", "mald:fullsweep"].forEach((k) => localStorage.removeItem(k));
+    ["mald:last", "mald:mine", "mald:me", "mald:details:anime", "mald:details:manga", "mald:links:anime", "mald:links:manga", "mald:pace", "mald:fullsweep", "mald:netlog"].forEach((k) => localStorage.removeItem(k));
   } catch { /* ignore */ }
 };
 MALD.pruneDetails = function () {

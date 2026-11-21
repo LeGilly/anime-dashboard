@@ -17,7 +17,8 @@
   MALD.REQ_PAUSE = 3000;     // background pace: about one request to MyAnimeList every 3 seconds
   MALD.MAX_PAUSE = 12000;    // slowest pace after repeated slowdowns (one request every 12 seconds)
   MALD.MAX_AUTO = 300;       // titles checked for sequels automatically (beyond favorites)
-  MALD.FIRST_DETAILS = 80;   // suggested titles looked up before showing results; the rest follow in the background
+  MALD.FIRST_DETAILS = 40;   // suggested titles looked up before showing results; the rest follow in the background
+  MALD.CHUNK = 5;            // titles per relay call, so more urgent requests can slip in between
   MALD.isSlowdown = (msg) => /limiting|too long|busy/i.test(msg || "");
 
   // Remembered between visits (not list data): when MyAnimeList last asked to slow down, and how fast to go.
@@ -177,9 +178,9 @@
     return { kind, key, cache, links, missing, stale };
   };
 
-  // Checks up to 25 titles (one relay call) and saves the results.
-  MALD.fetchLinks = async function (plan, ids) {
-    const res = await MALD.relay("/links", { type: plan.kind, ids: ids.join(",") });
+  // Checks a few titles (one relay call) and saves the results. net: { priority, group } for the request line.
+  MALD.fetchLinks = async function (plan, ids, net) {
+    const res = await MALD.relay("/links", { type: plan.kind, ids: ids.join(",") }, net);
     const now = Date.now();
     for (const it of res.items) {
       const v = it.missing ? { id: it.id, recs: [], related: [] } : slimLinks(it);
@@ -190,7 +191,7 @@
   };
 
   // offline: only use what's saved (while MyAnimeList needs a break). pause: wait between calls.
-  MALD.loadDetails = async function (kind, ids, { offline = false, pause = 0 } = {}) {
+  MALD.loadDetails = async function (kind, ids, { offline = false, pause = 0, priority = 1, group = null } = {}) {
     const key = `mald:details:${kind}`;
     const cache = MALD.readCache(key);
     const now = Date.now();
@@ -202,9 +203,9 @@
     }
     let error = null;
     try {
-      for (let i = 0; i < todo.length; i += 25) {
+      for (let i = 0; i < todo.length; i += MALD.CHUNK) {
         if (i && pause) await new Promise((r) => setTimeout(r, pause));
-        const res = await MALD.relay("/details", { type: kind, ids: todo.slice(i, i + 25).join(",") });
+        const res = await MALD.relay("/details", { type: kind, ids: todo.slice(i, i + MALD.CHUNK).join(",") }, { priority, group });
         for (const node of res.items) {
           const d = node.missing ? { missing: true } : MALD.detailsFromNode(node, kind);
           cache[node.id] = [now, d];

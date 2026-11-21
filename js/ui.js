@@ -115,6 +115,7 @@
   }
 
   function render() {
+    syncNet();
     const seg = $("kindSeg");
     seg.querySelectorAll("button").forEach((b) => {
       const k = b.dataset.kind;
@@ -448,6 +449,10 @@
 
   async function loadRecs(kind, entries) {
     const st = (S.recData[kind] = { status: "loading", done: 0, total: 0 });
+    // This list's requests to MyAnimeList: drop any left from before, and pause them whenever you leave Next up.
+    const group = `next:${kind}`;
+    MALD.net.cancel(group);
+    syncNet();
     const label = kind === "anime" ? "anime" : "manga";
     if (!MALD.relayReady()) {
       Object.assign(st, { status: "ready", links: new Map(), details: new Map(), error: "Suggestions from outside your list need the relay, which isn't set up on this site." });
@@ -464,15 +469,15 @@
     st.others = seeds.others.length;
     let slow = MALD.pace.coolingFor() > 0; // still on a break from last time
     let error = null;
-    const stop = (err) => { if (MALD.isSlowdown(err.message)) { MALD.pace.slowDown(); slow = true; } else error = err.message; };
+    const stop = (err) => { if (err.cancelled) error = "cancelled"; else if (MALD.isSlowdown(err.message)) { MALD.pace.slowDown(); slow = true; } else error = err.message; };
 
     // First pass (quick): favorites, then details for the best suggestions.
     if (!slow && first.length) {
       st.total = first.length;
       try {
-        for (let i = 0; i < first.length; i += 25) {
-          await MALD.fetchLinks(plan, first.slice(i, i + 25));
-          st.done = Math.min(first.length, i + 25);
+        for (let i = 0; i < first.length; i += MALD.CHUNK) {
+          await MALD.fetchLinks(plan, first.slice(i, i + MALD.CHUNK), { priority: 1, group });
+          st.done = Math.min(first.length, i + MALD.CHUNK);
           const el = $("recProgress");
           if (el) el.textContent = `Looking at your favorite ${label} on MyAnimeList… ${st.done}/${st.total}`;
         }
@@ -483,26 +488,30 @@
     let det = await MALD.loadDetails(kind, wanted, { offline: true });
     const needed = wanted.filter((id) => !det.details.has(id));
     if (!slow && !error && needed.length) {
-      const more = await MALD.loadDetails(kind, needed.slice(0, MALD.FIRST_DETAILS));
+      const more = await MALD.loadDetails(kind, needed.slice(0, MALD.FIRST_DETAILS), { priority: 1, group });
       for (const [id, d] of more.details) det.details.set(id, d);
-      if (more.error) stop({ message: more.error });
+      if (more.error) stop({ message: more.error, cancelled: more.error === "Cancelled." });
     }
+    if (S.recData[kind] !== st) return; // replaced meanwhile (another list, or tried again)
+    if (error === "cancelled") error = null;
     const left = queue;
     Object.assign(st, { status: "ready", links: plan.links, details: det.details, error,
       bg: { done: 0, total: left.length, running: !slow && !error, slow } });
     refreshNext(kind, entries);
-    if (st.bg.running) checkInBackground(kind, entries, st, plan, left);
+    if (st.bg.running) checkInBackground(kind, entries, st, plan, left, group);
     else if (slow) resumeLater(kind, st);
   }
 
   // Background: sequel checks and the details they need, a few titles at a time, at a steady pace.
-  async function checkInBackground(kind, entries, st, plan, ids) {
+  async function checkInBackground(kind, entries, st, plan, ids, group) {
+    const net = { priority: 2, group };
     const paced = async (count, work) => {
       const t0 = Date.now();
       await work();
       await sleep(Math.max(0, count * MALD.pace.get().pause - (Date.now() - t0)));
     };
     const slowedDown = (msg) => {
+      if (S.recData[kind] !== st) return; // replaced meanwhile: nothing to report
       st.bg.running = false;
       if (MALD.isSlowdown(msg)) { MALD.pace.slowDown(); st.bg.slow = true; resumeLater(kind, st); }
       else st.error = msg;
@@ -515,7 +524,7 @@
       for (let i = 0; i < missing.length; i += 5) {
         if (S.recData[kind] !== st) return false;
         let res;
-        await paced(Math.min(5, missing.length - i), async () => { res = await MALD.loadDetails(kind, missing.slice(i, i + 5)); });
+        await paced(Math.min(5, missing.length - i), async () => { res = await MALD.loadDetails(kind, missing.slice(i, i + 5), net); });
         for (const [id, d] of res.details) st.details.set(id, d);
         if (res.error) { slowedDown(res.error); return false; }
       }
@@ -527,7 +536,7 @@
       if (S.recData[kind] !== st) return; // another list was loaded meanwhile
       const chunk = ids.slice(i, i + 5);
       try {
-        await paced(chunk.length, () => MALD.fetchLinks(plan, chunk));
+        await paced(chunk.length, () => MALD.fetchLinks(plan, chunk, net));
       } catch (err) {
         slowedDown(err.message);
         return;
@@ -546,6 +555,16 @@
     if (ids.length) MALD.pace.relax();
     refreshNext(kind, entries);
   }
+
+  // Next up's requests only go out while you're looking at it: leaving the tab (or the browser tab) pauses them,
+  // coming back picks up where they stopped. Everything found so far is saved either way.
+  function syncNet() {
+    for (const k of ["anime", "manga"]) {
+      if (S.tab === "next" && S.kind === k && !document.hidden) MALD.net.resume(`next:${k}`);
+      else MALD.net.pause(`next:${k}`);
+    }
+  }
+  document.addEventListener("visibilitychange", syncNet);
 
   // After a break, start again by itself if the page is still open (saved checks are reused).
   function resumeLater(kind, st) {
@@ -1072,6 +1091,7 @@
       S.kind = "anime";
       $("app").hidden = true;
       $("loader").hidden = false;
+      syncNet();
       $("user").value = S.data && S.data.source === "live" ? S.data.user : "";
       $("user").focus();
     });
@@ -1079,6 +1099,11 @@
       const p = $("settings");
       p.hidden = !p.hidden;
       $("settingsBtn").setAttribute("aria-expanded", String(!p.hidden));
+    });
+    $("logBtn").addEventListener("click", async () => {
+      const text = MALD.netLogText();
+      try { await navigator.clipboard.writeText(text); toast("Request log copied. Paste it wherever you like."); }
+      catch { toast("Couldn't copy the request log in this browser.", "warn"); }
     });
     $("forgetBtn").addEventListener("click", () => {
       MALD.forget();

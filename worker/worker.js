@@ -148,7 +148,8 @@ export default {
       return json({ error: "Unknown endpoint." }, 404, cors);
     } catch (err) {
       const status = err.status || 502;
-      return json({ error: err.message || "MyAnimeList could not be reached." }, status, cors);
+      // "mal": what MyAnimeList itself answered, so the page can keep an accurate record of slowdowns.
+      return json({ error: err.message || "MyAnimeList could not be reached.", mal: err.mal }, status, cors);
     }
   },
 };
@@ -344,16 +345,44 @@ function fromB64url(s) {
 
 /* ---------- talking to MAL ---------- */
 
+/* ---------- request record ----------
+   One log line per call to MyAnimeList (Cloudflare → the worker → Observability), to learn what makes MAL
+   slow us down. Only the kind of call, MAL's answer and timings: no names, ids, tokens or addresses.
+   "lastMin" counts calls made by this copy of the relay in the past minute (Cloudflare can run several copies,
+   so the true total can be higher; the log's timestamps give the full picture). */
+const recent = [];
+function kindOf(url, method) {
+  const p = new URL(url).pathname.replace(/^\/v2/, "");
+  if (/^\/users\/@me$/.test(p)) return "me";
+  if (/^\/users\/@me\/\w+list$/.test(p)) return "my-list";
+  if (/^\/users\/[^/]+\/\w+list$/.test(p)) return "list";
+  if (/\/my_list_status$/.test(p)) return method === "DELETE" ? "remove" : "edit";
+  if (/^\/(anime|manga)\/\d+$/.test(p)) return /recommendations/.test(url) ? "links" : "details";
+  return "other";
+}
+function record(url, method, status, ms, res) {
+  const now = Date.now();
+  recent.push(now);
+  while (recent.length && now - recent[0] > 60000) recent.shift();
+  const line = { mal: kindOf(url, method), status, ms, lastMin: recent.length };
+  const retry = res && res.headers.get("Retry-After");
+  if (retry) line.retryAfter = retry;
+  console.log(JSON.stringify(line));
+}
+
 async function mal(env, url, { token, method = "GET", body } = {}) {
   let res;
+  const t0 = Date.now();
   try {
     // Give up after 15 seconds instead of waiting forever when MAL stops answering.
     const headers = token ? { Authorization: `Bearer ${token}` } : { "X-MAL-CLIENT-ID": env.MAL_CLIENT_ID };
     if (body) headers["Content-Type"] = "application/x-www-form-urlencoded";
     res = await fetch(url, { method, headers, body, signal: AbortSignal.timeout(15000) });
   } catch {
-    throw Object.assign(new Error("MyAnimeList took too long to answer. It may be busy or limiting requests; try again in a minute."), { status: 504 });
+    record(url, method, "timeout", Date.now() - t0);
+    throw Object.assign(new Error("MyAnimeList took too long to answer. It may be busy or limiting requests; try again in a minute."), { status: 504, mal: "timeout" });
   }
+  record(url, method, res.status, Date.now() - t0, res);
   if (res.ok) return method === "DELETE" ? {} : res.json();
   const messages = {
     400: "MyAnimeList rejected the request.",
@@ -364,6 +393,7 @@ async function mal(env, url, { token, method = "GET", body } = {}) {
   };
   throw Object.assign(new Error(messages[res.status] || `MyAnimeList answered with error ${res.status}.`), {
     status: res.status >= 500 ? 502 : res.status,
+    mal: res.status,
   });
 }
 

@@ -21,7 +21,9 @@
   // refreshing at the same moment could sign you out.
   let queue = Promise.resolve();
   function call(method, path, params, body) {
-    const run = () => send(method, path, params, body);
+    // Through the shared line for MyAnimeList, ahead of any background checks. Checking who you are doesn't reach MAL.
+    const what = (method === "GET" ? "" : method.toLowerCase() + " ") + path.slice(1) + (params && params.type ? `:${params.type}` : "");
+    const run = () => MALD.net.run(() => send(method, path, params, body), { cost: path === "/me" ? 0 : 1, priority: 0, what });
     const p = queue.then(run, run);
     queue = p.catch(() => {});
     return p;
@@ -51,7 +53,7 @@
       forgetMe();
       throw Object.assign(new Error((data && data.error) || "Your sign-in expired. Sign in again."), { status: 401 });
     }
-    if (!res.ok) throw Object.assign(new Error((data && data.error) || `The relay answered with error ${res.status}.`), { status: res.status });
+    if (!res.ok) throw Object.assign(new Error((data && data.error) || `The relay answered with error ${res.status}.`), { status: res.status, mal: data && data.mal });
     return data;
   }
 

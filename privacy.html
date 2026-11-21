@@ -7,7 +7,7 @@
   <meta name="referrer" content="no-referrer">
   <title>Privacy · Anime Dashboard</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23128afa'/%3E%3Ctext x='16' y='23' font-family='Segoe UI,Arial,sans-serif' font-size='19' font-weight='700' fill='white' text-anchor='middle'%3EA%3C/text%3E%3C/svg%3E">
-  <link rel="stylesheet" href="style.css?v=24">
+  <link rel="stylesheet" href="style.css?v=25">
 </head>
 <body>
   <main class="wrap prose">
@@ -27,6 +27,9 @@
         <li>The lists you load (yours, and the last one you browsed), for up to 30 days.</li>
         <li>Details about titles (covers, genres, sequels), to avoid asking MyAnimeList again, for up to 60 days.</li>
         <li>Your settings (English titles, blurring 18+ covers).</li>
+        <li>A short record of the last few hundred requests to MyAnimeList (time, kind of request, how long it took
+          and whether it worked; no names), to understand slowdowns. It only leaves your browser if you use
+          <strong>Settings → Copy request log</strong> and share it yourself.</li>
       </ul>
       <p>You can remove all of it at any time with <strong>Settings → Forget this list</strong>, or by clearing this site's data in your browser.</p>
 
@@ -43,8 +46,10 @@
 
       <h2>The relay</h2>
       <p>The relay is a small program on Cloudflare that passes requests between your browser and MyAnimeList.
-        It doesn't store your lists, your sign-in or anything else. Cloudflare may keep short technical logs
-        (such as which addresses made requests) as part of running its service.</p>
+        It doesn't store your lists, your sign-in or anything else. For each request it makes to MyAnimeList it writes
+        a log line with only the kind of request, MyAnimeList's answer and timings (no names, titles or addresses);
+        Cloudflare keeps these for a few days. Cloudflare may also keep short technical logs (such as which addresses
+        made requests) as part of running its service.</p>
 
       <h2>Sharing</h2>
       <p>Nothing is sold or shared. Your data only goes between your browser, the relay and MyAnimeList.
