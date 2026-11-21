@@ -26,15 +26,3 @@ See the [privacy notice](https://anime.legilly.com/privacy.html).
 Your list is kept only in your browser, for up to 30 days, and can be removed at any time with **Settings → Forget this list**.
 
 Data and pictures © MyAnimeList. Fan-made, not affiliated with MyAnimeList.
-
-## Versions
-
-The version is shown at the bottom of the page and set in `index.html` (also `privacy.html`), as major.minor.patch:
-
-- **patch** (1.0.**0** → 1.0.**1**): fixes and small visual changes
-- **minor** (1.**0**.1 → 1.**1**.0): a new feature
-- **major** (**1**.1.0 → **2**.0.0): a big change in what the project is or how it works
-
-For each release, set the new version in `index.html` (the shown version and every `?v=`, so browsers fetch
-the fresh files), add an entry to [CHANGELOG.md](CHANGELOG.md), and update the line below.
-Current version: 2.3.0.

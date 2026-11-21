@@ -1,8 +1,5 @@
 # Changelog
 
-Versions follow major.minor.patch: see the README. Before 2026-11-21 the site used a single number
-(v1 to v35); the versions below were rebuilt from the commit history.
-
 ## 2.3.0 · 2026-11-21
 - New Search tab: search all of MyAnimeList by name, browse a season's anime or the top lists, with type filters and an option to hide titles already on the list
 - Next up shows a counter while it looks up suggested titles
