@@ -14,7 +14,7 @@
     alternative_version: "Another version of", parent_story: "Main story of", full_story: "Full story of",
   };
   const DONE = ["completed", "current", "on_hold", "dropped"]; // already started: never suggested
-  MALD.REQ_PAUSE = 3000;     // background pace: about one request to MyAnimeList every 3 seconds
+  MALD.REQ_PAUSE = 1000;     // background pace: about one request to MyAnimeList per second (MAL handled this fine in testing)
   MALD.MAX_PAUSE = 12000;    // slowest pace after repeated slowdowns (one request every 12 seconds)
   MALD.MAX_AUTO = 300;       // titles checked for sequels automatically (beyond favorites)
   MALD.FIRST_DETAILS = 40;   // suggested titles looked up before showing results; the rest follow in the background
@@ -25,23 +25,25 @@
   MALD.pace = {
     get() {
       const p = MALD.readCache("mald:pace");
+      // A pace saved under the old, slower defaults (before v27) starts over at the new one.
+      if (p.v !== 2) return { until: p.until || 0, pause: MALD.REQ_PAUSE };
       return { until: p.until || 0, pause: Math.max(MALD.REQ_PAUSE, p.pause || MALD.REQ_PAUSE) };
     },
     // Slowed down: wait 5 minutes (10 if it happens again soon), and halve the speed.
     slowDown() {
       const p = MALD.pace.get();
       const again = Date.now() - (p.until || 0) < 10 * 60 * 1000;
-      MALD.writeCache("mald:pace", { until: Date.now() + (again ? 10 : 5) * 60 * 1000, pause: Math.min(MALD.MAX_PAUSE, p.pause * 2) });
+      MALD.writeCache("mald:pace", { v: 2, until: Date.now() + (again ? 10 : 5) * 60 * 1000, pause: Math.min(MALD.MAX_PAUSE, p.pause * 2) });
     },
     // A full run went fine: speed back up a little.
     relax() {
       const p = MALD.pace.get();
-      MALD.writeCache("mald:pace", { until: 0, pause: Math.max(MALD.REQ_PAUSE, Math.round(p.pause * 0.75)) });
+      MALD.writeCache("mald:pace", { v: 2, until: 0, pause: Math.max(MALD.REQ_PAUSE, Math.round(p.pause * 0.75)) });
     },
     // "Try again now": skip the wait, keep the slower speed.
     skipWait() {
       const p = MALD.pace.get();
-      MALD.writeCache("mald:pace", { until: 0, pause: p.pause });
+      MALD.writeCache("mald:pace", { v: 2, until: 0, pause: p.pause });
     },
     coolingFor() { return Math.max(0, MALD.pace.get().until - Date.now()); },
   };
