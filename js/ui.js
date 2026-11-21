@@ -18,7 +18,8 @@
     groupAll: { genres: false, creators: false },
     histMetric: "count",
     histYear: null,
-    next: { source: "both", genre: "", exclude: "", length: "", airing: false, shown: 12, contShown: 6, soonShown: 6 },
+    next: { source: "both", genres: [], matchAll: false, excludes: [], lengths: [], airing: false, shown: 12, contShown: 6, soonShown: 6 },
+    openMulti: null,
     recData: {},
     recPool: new Map(),
     prefs: { english: false, blur: true },
@@ -433,13 +434,24 @@
     }
     const N = S.next;
     const res = MALD.recommend(entries, S.kind, st.links, st.details,
-      { source: N.source, genre: N.genre, exclude: N.exclude, length: N.length, airing: N.airing, hideAdult: S.prefs.blur }, titleOf);
+      { source: N.source, genres: N.genres, matchAll: N.matchAll, excludes: N.excludes, lengths: N.lengths, airing: N.airing, hideAdult: S.prefs.blur }, titleOf);
     S.recPool = res.pool;
 
     const lengthOpts = anime
       ? [["", "Any length"], ["movie", "Movies"], ["short", "Short (up to 13 eps)"], ["medium", "Medium (14 to 26 eps)"], ["long", "Long (27+ eps)"]]
       : [["", "Any length"], ["oneshot", "One-shots"], ["short", "Short (up to 5 vols)"], ["long", "Long (6+ vols)"]];
-    const sel = (v, cur) => (v === cur ? " selected" : "");
+    // A button that opens a list of checkboxes, so several options can be ticked.
+    const multi = (key, name, picked, options, label, extra = "") => `
+      <div class="multi${picked.length ? " on" : ""}" data-multi="${key}">
+        <button type="button" class="msel" aria-haspopup="true" aria-expanded="${S.openMulti === key}" aria-label="${esc(name)}">${esc(label)}</button>
+        <div class="mpanel"${S.openMulti === key ? "" : " hidden"}>
+          ${extra}
+          <div class="mlist${options.length > 8 ? " twocol" : ""}">
+            ${options.map(([v, t]) => `<label class="mopt"><input type="checkbox" data-mval="${esc(v)}"${picked.includes(v) ? " checked" : ""}> ${esc(t)}</label>`).join("")}
+          </div>
+          ${picked.length ? `<button type="button" class="link" data-mclear="${key}">Clear</button>` : ""}
+        </div>
+      </div>`;
     const plan = anime ? "Plan to watch" : "Plan to read";
 
     const card = (x, extra) => {
@@ -474,9 +486,13 @@
         <div class="seg small" id="recSource" aria-label="Suggestions from">
           ${[["both", "Everything"], ["list", plan], ["new", "Not on my list"]].map(([v, t]) => `<button data-rsource="${v}" aria-pressed="${N.source === v}">${t}</button>`).join("")}
         </div>
-        <select id="rGenre" aria-label="Genre"><option value="">Any genre</option>${res.genres.map((g) => `<option${sel(g, N.genre)}>${esc(g)}</option>`).join("")}</select>
-        <select id="rExclude" aria-label="Leave out a genre"><option value="">Leave out a genre…</option>${res.genres.map((g) => `<option${sel(g, N.exclude)}>${esc(g)}</option>`).join("")}</select>
-        <select id="rLength" aria-label="Length">${lengthOpts.map(([v, t]) => `<option value="${v}"${sel(v, N.length)}>${t}</option>`).join("")}</select>
+        ${multi("genres", "Genres", N.genres, res.genres.map((g) => [g, g]),
+          N.genres.length ? (N.genres.length <= 2 ? N.genres.join(N.matchAll ? " + " : ", ") : `${N.genres.length} genres`) : "Any genre",
+          `<label class="mopt all"><input type="checkbox" data-mall${N.matchAll ? " checked" : ""}> Must have all of them</label>`)}
+        ${multi("excludes", "Leave out genres", N.excludes, res.genres.map((g) => [g, g]),
+          N.excludes.length ? (N.excludes.length <= 2 ? `Without ${N.excludes.join(", ")}` : `Without ${N.excludes.length} genres`) : "Leave out genres…")}
+        ${multi("lengths", "Length", N.lengths, lengthOpts.filter(([v]) => v),
+          N.lengths.length ? lengthOpts.filter(([v]) => N.lengths.includes(v)).map(([, t]) => t.replace(/ \(.*\)/, "")).join(", ") : "Any length")}
         <label class="check"><input type="checkbox" id="rAiring"${N.airing ? " checked" : ""}> Include ${anime ? "airing" : "ongoing"}</label>
       </div>
       ${st.error ? `<p class="sub warn">${esc(st.error)} <button class="link" data-act="rretry">Try again</button></p>` : ""}
@@ -606,7 +622,7 @@
       if (!b || b.dataset.kind === S.kind) return;
       S.kind = b.dataset.kind;
       S.lib = Object.assign(S.lib, { status: "all", type: "", genre: "", creator: "", year: "", shown: PAGE });
-      Object.assign(S.next, { genre: "", exclude: "", length: "" }); resetNextPaging();
+      Object.assign(S.next, { genres: [], matchAll: false, excludes: [], lengths: [] }); S.openMulti = null; resetNextPaging();
       syncUrl(); render();
     });
     $("tabs").addEventListener("click", (ev) => {
@@ -663,9 +679,13 @@
       const map = { fType: "type", fGenre: "genre", fCreator: "creator", fYear: "year", fSort: "sort" };
       if (map[ev.target.id]) { S.lib[map[ev.target.id]] = ev.target.value; S.lib.shown = PAGE; render(); }
       else if (ev.target.id === "qSort") { S.queueSort = ev.target.value; render(); }
-      else if (ev.target.id === "rGenre") { S.next.genre = ev.target.value; resetNextPaging(); render(); }
-      else if (ev.target.id === "rExclude") { S.next.exclude = ev.target.value; resetNextPaging(); render(); }
-      else if (ev.target.id === "rLength") { S.next.length = ev.target.value; resetNextPaging(); render(); }
+      else if (ev.target.matches("[data-mval]")) {
+        const key = ev.target.closest("[data-multi]").dataset.multi;
+        const v = ev.target.dataset.mval;
+        S.next[key] = ev.target.checked ? [...S.next[key], v] : S.next[key].filter((x) => x !== v);
+        resetNextPaging(); render();
+      }
+      else if (ev.target.matches("[data-mall]")) { S.next.matchAll = ev.target.checked; resetNextPaging(); render(); }
       else if (ev.target.id === "rAiring") { S.next.airing = ev.target.checked; resetNextPaging(); render(); }
     });
     view.addEventListener("click", (ev) => {
@@ -676,6 +696,16 @@
       else if (t.dataset.act === "more") { S.lib.shown += PAGE; render(); }
       else if (t.dataset.act === "clear") { Object.assign(S.lib, { status: "all", q: "", type: "", genre: "", creator: "", year: "", shown: PAGE }); render(); }
       else if (t.dataset.gmode) { S.groupMode[t.dataset.field] = t.dataset.gmode; render(); }
+      else if (t.classList.contains("msel")) {
+        const key = t.closest("[data-multi]").dataset.multi;
+        S.openMulti = S.openMulti === key ? null : key;
+        view.querySelectorAll("[data-multi]").forEach((m) => {
+          const open = m.dataset.multi === S.openMulti;
+          m.querySelector(".mpanel").hidden = !open;
+          m.querySelector(".msel").setAttribute("aria-expanded", String(open));
+        });
+      }
+      else if (t.dataset.mclear) { S.next[t.dataset.mclear] = []; if (t.dataset.mclear === "genres") S.next.matchAll = false; resetNextPaging(); render(); }
       else if (t.dataset.rsource) { S.next.source = t.dataset.rsource; resetNextPaging(); render(); }
       else if (t.dataset.act === "rmore") { S.next.shown += 12; render(); }
       else if (t.dataset.act === "cmore") { S.next.contShown += 12; render(); }
@@ -687,6 +717,17 @@
       else if (t.dataset.year) { S.histYear = Number(t.dataset.year); render(); }
       else if (t.dataset.id) openDetail(t.dataset.id);
     });
+
+    const closeMulti = () => {
+      if (!S.openMulti) return;
+      S.openMulti = null;
+      view.querySelectorAll("[data-multi]").forEach((m) => {
+        m.querySelector(".mpanel").hidden = true;
+        m.querySelector(".msel").setAttribute("aria-expanded", "false");
+      });
+    };
+    document.addEventListener("click", (ev) => { if (!ev.target.closest("[data-multi]")) closeMulti(); });
+    document.addEventListener("keydown", (ev) => { if (ev.key === "Escape") closeMulti(); });
 
     const dlg = $("detail");
     dlg.addEventListener("click", (ev) => {

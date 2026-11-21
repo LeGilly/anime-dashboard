@@ -285,9 +285,9 @@
     }
 
     // Filters.
-    const lengthOk = (e) => {
-      const L = opts.length;
-      if (!L) return true;
+    // Several lengths can be ticked: a title passes if it matches any of them.
+    const lengthOk = (e) => !opts.lengths.length || opts.lengths.some((L) => oneLength(e, L));
+    const oneLength = (e, L) => {
       if (anime) {
         if (L === "movie") return e.mediaType === "Movie";
         if (e.mediaType === "Movie" || !e.total) return false;
@@ -299,8 +299,14 @@
       if (L === "short") return e.totalVol > 0 && e.totalVol <= 5;
       return e.totalVol > 5;
     };
-    const genreOk = (x) => (!opts.genre || x.e.genres.includes(opts.genre)) && (!opts.exclude || !x.e.genres.includes(opts.exclude))
-      && !(opts.hideAdult && MALD.isAdult(x.e));
+    // Ticked genres: any of them (or all of them with "must have all"); left-out genres: none of them.
+    const genreOk = (x) => {
+      const g = x.e.genres;
+      const want = opts.genres;
+      if (want.length && !(opts.matchAll ? want.every((w) => g.includes(w)) : want.some((w) => g.includes(w)))) return false;
+      if (opts.excludes.some((w) => g.includes(w))) return false;
+      return !(opts.hideAdult && MALD.isAdult(x.e));
+    };
     const released = (x) => !MALD.isUpcoming(x.e) && (opts.airing || !MALD.isOngoing(x.e));
     const sourceOk = (x) => opts.source === "both" || (opts.source === "list" ? x.onList : !x.onList);
     const byScore = (a, b) => b.score - a.score;
