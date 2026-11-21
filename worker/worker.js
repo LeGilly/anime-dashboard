@@ -9,6 +9,9 @@
 // Endpoints (GET only):
 //   /list?user=NAME&type=anime|manga      -> { user, type, items: [ {node, list_status}, ... ] }
 //   /details?type=anime|manga&ids=1,2,3   -> { type, items: [ node, ... ] }   (max 40 ids)
+//   /links?type=anime|manga&ids=1,2,3     -> { type, items: [ { id, recs, related }, ... ] }   (max 40 ids)
+//        recs:    [[id, title, picture, number of MAL users recommending it], ...]
+//        related: [[id, title, picture, relation (sequel, side_story, ...)], ...]
 
 // Pages allowed to use this relay. Add your own test address here if needed.
 const ALLOWED_ORIGINS = [
@@ -55,12 +58,16 @@ export default {
         if (!/^[A-Za-z0-9_-]{2,16}$/.test(user)) return json({ error: "That doesn't look like a MAL username." }, 400, cors);
         return json(await getList(env, user, type), 200, { ...cors, "Cache-Control": "no-store" });
       }
-      if (url.pathname === "/details") {
+      if (url.pathname === "/details" || url.pathname === "/links") {
         const ids = (url.searchParams.get("ids") || "").split(",").filter(Boolean);
         if (!ids.length || ids.length > MAX_IDS || !ids.every((id) => /^\d{1,9}$/.test(id))) {
           return json({ error: `ids must be 1 to ${MAX_IDS} numbers.` }, 400, cors);
         }
-        return json(await getDetails(env, ctx, type, [...new Set(ids)]), 200, cors);
+        const unique = [...new Set(ids)];
+        const result = url.pathname === "/details"
+          ? await getCached(env, ctx, type, unique, "details", FIELDS[type], (node) => node)
+          : await getCached(env, ctx, type, unique, "links", `recommendations,related_${type}`, slimLinks(type));
+        return json(result, 200, cors);
       }
       return json({ error: "Unknown endpoint." }, 404, cors);
     } catch (err) {
@@ -83,18 +90,29 @@ async function getList(env, user, type) {
   return { user, type, items };
 }
 
-async function getDetails(env, ctx, type, ids) {
+// Recommendations and related titles, trimmed to what the dashboard uses.
+function slimLinks(type) {
+  const pic = (n) => (n.main_picture && (n.main_picture.medium || n.main_picture.large)) || "";
+  return (node) => ({
+    id: node.id,
+    recs: (node.recommendations || []).map((r) => [r.node.id, r.node.title, pic(r.node), r.num_recommendations || 0]),
+    related: (node[`related_${type}`] || []).map((r) => [r.node.id, r.node.title, pic(r.node), r.relation_type]),
+  });
+}
+
+// Title data (not user data) is cached for a week, per title and per kind of request.
+async function getCached(env, ctx, type, ids, kind, fields, shape) {
   const cache = caches.default;
   const items = [];
   // Look up a few at a time so MAL isn't hit with 40 requests at once.
   for (let i = 0; i < ids.length; i += 6) {
     const batch = ids.slice(i, i + 6);
     const results = await Promise.all(batch.map(async (id) => {
-      const key = new Request(`https://mal-cache.internal/${type}/${id}`);
+      const key = new Request(`https://mal-cache.internal/${kind}/${type}/${id}`);
       const hit = await cache.match(key);
       if (hit) return hit.json();
       try {
-        const node = await mal(env, `${MAL}/${type}/${id}?nsfw=true&fields=${FIELDS[type]}`);
+        const node = shape(await mal(env, `${MAL}/${type}/${id}?nsfw=true&fields=${fields}`));
         ctx.waitUntil(cache.put(key, new Response(JSON.stringify(node), {
           headers: { "Cache-Control": `max-age=${DETAIL_CACHE_S}` },
         })));

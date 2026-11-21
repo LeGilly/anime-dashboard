@@ -260,7 +260,7 @@ MALD.loadSaved = function () {
 // Removes the saved list and all cached title details from this browser.
 MALD.forget = function () {
   try {
-    ["mald:last", "mald:details:anime", "mald:details:manga"].forEach((k) => localStorage.removeItem(k));
+    ["mald:last", "mald:details:anime", "mald:details:manga", "mald:links:anime", "mald:links:manga"].forEach((k) => localStorage.removeItem(k));
   } catch { /* ignore */ }
 };
 MALD.pruneDetails = function () {
@@ -270,5 +270,19 @@ MALD.pruneDetails = function () {
     let changed = false;
     for (const id in cache) if (!(now - cache[id][0] < DETAILS_TTL)) { delete cache[id]; changed = true; }
     if (changed) saveDetailsCache(kind, cache);
+    const links = MALD.readCache(`mald:links:${kind}`);
+    let linksChanged = false;
+    for (const id in links) if (!(now - links[id][0] < MALD.LINKS_TTL)) { delete links[id]; linksChanged = true; }
+    if (linksChanged) MALD.writeCache(`mald:links:${kind}`, links);
   }
 };
+
+/* ---------- shared with recs.js ---------- */
+
+MALD.relay = relay;
+MALD.detailsFromNode = detailsFromNode;
+MALD.makeEntry = makeEntry;
+MALD.DETAILS_TTL = DETAILS_TTL;
+MALD.LINKS_TTL = 7 * 24 * 3600 * 1000;
+MALD.readCache = (key) => { try { return JSON.parse(localStorage.getItem(key)) || {}; } catch { return {}; } };
+MALD.writeCache = (key, value) => { try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* storage full or blocked */ } };

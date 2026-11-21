@@ -18,6 +18,9 @@
     groupAll: { genres: false, creators: false },
     histMetric: "count",
     histYear: null,
+    next: { source: "both", genre: "", exclude: "", length: "", airing: false, shown: 12, contAll: false },
+    recData: {},
+    recPool: new Map(),
     prefs: { english: false, blur: true },
     busy: false,
   };
@@ -31,8 +34,7 @@
   const unitName = (n) => (S.kind === "manga" ? (n === 1 ? "chapter" : "chapters") : n === 1 ? "episode" : "episodes");
   const malUrl = (e) => `https://myanimelist.net/${e.kind}/${e.id}`;
   // MAL marks hentai as "gray" (not only "black"), so blur anything not marked safe, plus Hentai or Erotica genres.
-  const ADULT = ["Hentai", "Erotica"];
-  const hidden18 = (e) => S.prefs.blur && ((e.nsfw && e.nsfw !== "white") || e.genres.some((g) => ADULT.includes(g)));
+  const hidden18 = (e) => S.prefs.blur && MALD.isAdult(e);
   const statusText = (e) => (e.repeating ? (e.kind === "manga" ? "Rereading" : "Rewatching") : MALD.statusLabel(e.status, e.kind));
 
   function setStatus(text, kind) {
@@ -66,6 +68,7 @@
 
   function show(data) {
     S.data = data;
+    S.recData = {};
     if (!data[S.kind] && data[S.kind === "anime" ? "manga" : "anime"]) S.kind = S.kind === "anime" ? "manga" : "anime";
     S.lib.shown = PAGE;
     $("loader").hidden = true;
@@ -107,6 +110,7 @@
     }
     if (S.tab === "library") renderLibrary(view, entries);
     else if (S.tab === "progress") renderProgress(view, entries);
+    else if (S.tab === "next") renderNext(view, entries);
     else renderStats(view, entries);
     applySizes(view);
   }
@@ -396,14 +400,100 @@
     </section>`;
   }
 
+  /* ---------- Next up ---------- */
+
+  async function loadRecs(kind, entries) {
+    const st = (S.recData[kind] = { status: "loading", done: 0, total: 0 });
+    if (!MALD.relayReady()) {
+      Object.assign(st, { status: "ready", links: new Map(), details: new Map(), error: "Suggestions from outside your list need the relay, which isn't set up on this site." });
+    } else {
+      const { links, error } = await MALD.loadLinks(kind, MALD.recSeeds(entries), (done, total) => {
+        st.done = done; st.total = total;
+        const el = $("recProgress");
+        if (el) el.textContent = `Looking at your ${kind === "anime" ? "anime" : "manga"} on MyAnimeList… ${done}/${total}`;
+      });
+      const el = $("recProgress");
+      if (el) el.textContent = "Looking up suggested titles…";
+      const det = await MALD.loadDetails(kind, MALD.recDetailIds(entries, links));
+      Object.assign(st, { status: "ready", links, details: det.details, error: error || det.error });
+    }
+    if (S.tab === "next" && S.kind === kind && S.data && S.data[kind] === entries) render();
+  }
+
+  function renderNext(view, entries) {
+    const anime = S.kind === "anime";
+    const st = S.recData[S.kind];
+    if (!st) { loadRecs(S.kind, entries); return renderNext(view, entries); }
+    if (st.status === "loading") {
+      view.innerHTML = `<div class="empty"><p class="sub busy" id="recProgress">Looking at your ${anime ? "anime" : "manga"} on MyAnimeList…${st.total ? ` ${st.done}/${st.total}` : ""}</p>
+        <p class="hint">The first time takes a little while. After that it's saved in your browser for a week.</p></div>`;
+      return;
+    }
+    const N = S.next;
+    const res = MALD.recommend(entries, S.kind, st.links, st.details,
+      { source: N.source, genre: N.genre, exclude: N.exclude, length: N.length, airing: N.airing, hideAdult: S.prefs.blur }, titleOf);
+    S.recPool = res.pool;
+
+    const lengthOpts = anime
+      ? [["", "Any length"], ["movie", "Movies"], ["short", "Short (up to 13 eps)"], ["medium", "Medium (14 to 26 eps)"], ["long", "Long (27+ eps)"]]
+      : [["", "Any length"], ["oneshot", "One-shots"], ["short", "Short (up to 5 vols)"], ["long", "Long (6+ vols)"]];
+    const sel = (v, cur) => (v === cur ? " selected" : "");
+    const plan = anime ? "Plan to watch" : "Plan to read";
+
+    const card = (x, extra) => {
+      const e = x.e;
+      const when = MALD.isUpcoming(e) ? (e.season ? `Starts ${e.season}` : e.airStart ? `Starts ${MALD.fmtDate(e.airStart)}` : "Date not announced")
+        : MALD.isOngoing(e) ? (anime ? "Airing now" : "Publishing") : "";
+      const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+      const len = anime ? (e.mediaType === "Movie" ? "" : e.total ? plural(e.total, "ep") : "") : e.totalVol ? plural(e.totalVol, "vol") : e.total ? `${e.total} ch` : "";
+      const meta = [e.mediaType, extra === "soon" ? when : e.year, extra === "soon" ? "" : len, e.mean ? `★ ${e.mean.toFixed(2)}` : ""].filter(Boolean).join(" · ");
+      return `<button class="rcard" data-id="${e.id}">
+        ${cover(e, "rthumb")}
+        <span class="rc-body">
+          <strong>${esc(titleOf(e))}</strong>
+          <small>${esc(meta)}</small>
+          <span class="rc-tags">${x.onList ? `<span class="tag">On your ${esc(plan.toLowerCase())}</span>` : `<span class="tag new">Not on your list</span>`}${extra !== "soon" && when ? ` <span class="tag">${esc(when)}</span>` : ""}</span>
+          ${x.reasons.length ? `<ul class="reasons">${x.reasons.map((t) => `<li>${esc(t)}</li>`).join("")}</ul>` : ""}
+        </span>
+      </button>`;
+    };
+    const section = (title, sub, items, empty, opts = {}) => {
+      const shown = opts.limit ? items.slice(0, opts.limit) : items;
+      return `<section class="block">
+        <h2>${esc(title)} <small>${MALD.fmtNum(items.length)}</small></h2>
+        ${sub ? `<p class="hint">${sub}</p>` : ""}
+        ${items.length ? `<div class="rgrid">${shown.map((x) => card(x, opts.extra)).join("")}</div>` : `<p class="hint">${esc(empty)}</p>`}
+        ${opts.more && items.length > shown.length ? `<button class="more ghost" data-act="${opts.more}">Show more (${MALD.fmtNum(items.length - shown.length)} left)</button>` : ""}
+      </section>`;
+    };
+
+    view.innerHTML = `
+      <div class="filters">
+        <div class="seg small" id="recSource" aria-label="Suggestions from">
+          ${[["both", "Everything"], ["list", plan], ["new", "Not on my list"]].map(([v, t]) => `<button data-rsource="${v}" aria-pressed="${N.source === v}">${t}</button>`).join("")}
+        </div>
+        <select id="rGenre" aria-label="Genre"><option value="">Any genre</option>${res.genres.map((g) => `<option${sel(g, N.genre)}>${esc(g)}</option>`).join("")}</select>
+        <select id="rExclude" aria-label="Leave out a genre"><option value="">Leave out a genre…</option>${res.genres.map((g) => `<option${sel(g, N.exclude)}>${esc(g)}</option>`).join("")}</select>
+        <select id="rLength" aria-label="Length">${lengthOpts.map(([v, t]) => `<option value="${v}"${sel(v, N.length)}>${t}</option>`).join("")}</select>
+        <label class="check"><input type="checkbox" id="rAiring"${N.airing ? " checked" : ""}> Include ${anime ? "airing" : "ongoing"}</label>
+      </div>
+      ${st.error ? `<p class="sub warn">${esc(st.error)} <button class="link" data-act="rretry">Try again</button></p>` : ""}
+      ${res.basis === "empty" ? `<p class="hint">There's nothing ${anime ? "watched" : "read"}, ${anime ? "watching" : "reading"} or dropped on this list yet, so these picks only use your ${plan.toLowerCase()} and MyAnimeList scores. They'll get more personal as your list grows.</p>`
+        : `<p class="hint">${esc(res.basis)}</p>`}
+      ${S.prefs.blur ? `<p class="hint">18+ titles are left out while "Blur 18+ covers" is on in Settings.</p>` : ""}
+      ${section("Continue a series", `Sequels to ${anime ? "shows" : "series"} you finished.`, res.cont, "No sequels waiting for you with these filters.", { limit: N.contAll ? 0 : 6, more: "cmore", extra: "" })}
+      ${section("Recommended for you", "Based on what you rate highly, and what MyAnimeList users recommend from your favorites.", res.recommended, "Nothing matches these filters.", { limit: N.shown, more: "rmore" })}
+      ${section("Coming up", `Related to ${anime ? "shows" : "series"} you've seen, or on your ${plan.toLowerCase()}: not out yet, or still ${anime ? "airing" : "ongoing"}.`, res.comingUp, "Nothing announced right now.", { extra: "soon" })}`;
+  }
+
   /* ---------- detail panel ---------- */
 
   function openDetail(id) {
-    const e = (list() || []).find((x) => String(x.id) === String(id));
+    const e = (list() || []).find((x) => String(x.id) === String(id)) || S.recPool.get(Number(id));
     if (!e) return;
     const anime = e.kind === "anime";
     const dl = (pairs) => pairs.filter((p) => p[1] !== "" && p[1] != null).map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("");
-    const mine = dl([
+    const mine = !e.status ? `<dt>Status</dt><dd>Not on your list yet</dd>` : dl([
       ["Status", `<span class="pill"><i class="dot st-${e.status}"></i>${esc(statusText(e))}</span>`],
       ["Your score", e.score ? `★ ${e.score}` : "Not scored"],
       [anime ? "Episodes" : "Chapters", `${progressText(e)}`],
@@ -514,6 +604,7 @@
       if (!b || b.dataset.kind === S.kind) return;
       S.kind = b.dataset.kind;
       S.lib = Object.assign(S.lib, { status: "all", type: "", genre: "", creator: "", year: "", shown: PAGE });
+      Object.assign(S.next, { genre: "", exclude: "", length: "", shown: 12 });
       syncUrl(); render();
     });
     $("tabs").addEventListener("click", (ev) => {
@@ -570,6 +661,10 @@
       const map = { fType: "type", fGenre: "genre", fCreator: "creator", fYear: "year", fSort: "sort" };
       if (map[ev.target.id]) { S.lib[map[ev.target.id]] = ev.target.value; S.lib.shown = PAGE; render(); }
       else if (ev.target.id === "qSort") { S.queueSort = ev.target.value; render(); }
+      else if (ev.target.id === "rGenre") { S.next.genre = ev.target.value; S.next.shown = 12; render(); }
+      else if (ev.target.id === "rExclude") { S.next.exclude = ev.target.value; S.next.shown = 12; render(); }
+      else if (ev.target.id === "rLength") { S.next.length = ev.target.value; S.next.shown = 12; render(); }
+      else if (ev.target.id === "rAiring") { S.next.airing = ev.target.checked; S.next.shown = 12; render(); }
     });
     view.addEventListener("click", (ev) => {
       const t = ev.target.closest("button");
@@ -579,6 +674,10 @@
       else if (t.dataset.act === "more") { S.lib.shown += PAGE; render(); }
       else if (t.dataset.act === "clear") { Object.assign(S.lib, { status: "all", q: "", type: "", genre: "", creator: "", year: "", shown: PAGE }); render(); }
       else if (t.dataset.gmode) { S.groupMode[t.dataset.field] = t.dataset.gmode; render(); }
+      else if (t.dataset.rsource) { S.next.source = t.dataset.rsource; S.next.shown = 12; render(); }
+      else if (t.dataset.act === "rmore") { S.next.shown += 12; render(); }
+      else if (t.dataset.act === "cmore") { S.next.contAll = true; render(); }
+      else if (t.dataset.act === "rretry") { delete S.recData[S.kind]; render(); }
       else if (t.dataset.expand) { S.expand[t.dataset.expand] = !S.expand[t.dataset.expand]; render(); }
       else if (t.dataset.gall) { S.groupAll[t.dataset.gall] = !S.groupAll[t.dataset.gall]; render(); }
       else if (t.dataset.hmetric) { S.histMetric = t.dataset.hmetric; render(); }
@@ -616,7 +715,7 @@
     MALD.pruneDetails();
     const p = new URLSearchParams(location.search);
     if (p.get("kind") === "manga") S.kind = "manga";
-    if (["progress", "stats"].includes(p.get("tab"))) S.tab = p.get("tab");
+    if (["progress", "next", "stats"].includes(p.get("tab"))) S.tab = p.get("tab");
     if (!MALD.relayReady()) {
       $("liveHint").textContent = "Live loading isn't set up on this site yet. Use the XML upload below.";
       $("user").disabled = true;

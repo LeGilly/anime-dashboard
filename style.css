@@ -216,6 +216,26 @@ img.nsfw { filter: blur(14px); }
 .queue li::before { content: counter(q); color: var(--muted); font-size: 0.75rem; width: 2.2em; text-align: right; font-variant-numeric: tabular-nums; flex: none; }
 .qrow { grid-template-columns: 32px minmax(0, 1fr) 44px; background: var(--bg); padding: 4px 12px 4px 4px; }
 
+/* ---------- next up ---------- */
+.check { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 0.85rem; cursor: pointer; }
+.rgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 8px; margin-top: 10px; }
+.rcard {
+  display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 12px; align-items: start; text-align: left; width: 100%;
+  background: var(--bg); color: var(--ink); border: 1px solid var(--line); border-radius: 12px;
+  padding: 8px 12px 8px 8px; font-weight: 400; cursor: pointer;
+}
+.rcard:hover { border-color: var(--accent); }
+.rthumb { width: 64px; height: 92px; object-fit: cover; border-radius: 8px; background: var(--track); display: grid; place-items: center; }
+.rthumb.noimg { font-size: 1.3rem; }
+.rc-body { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.rc-body strong { font-size: 0.9rem; line-height: 1.3; }
+.rc-body small { color: var(--muted); font-size: 0.78rem; }
+.rc-tags { display: flex; flex-wrap: wrap; gap: 4px; }
+.tag.new { color: var(--st-planned); }
+.reasons { list-style: none; margin: 2px 0 0; padding: 0; font-size: 0.78rem; color: var(--muted); }
+.reasons li { position: relative; padding-left: 12px; }
+.reasons li::before { content: ""; position: absolute; left: 2px; top: 0.55em; width: 4px; height: 4px; border-radius: 50%; background: var(--accent); }
+
 /* ---------- stats ---------- */
 .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; margin-bottom: 14px; }
 .stat { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; }
@@ -305,5 +325,5 @@ footer a { color: inherit; }
   .filters select { flex: 1 1 40%; max-width: none; }
   .gbars li { grid-template-columns: minmax(70px, 34%) 1fr 54px; }
   .g-sub { display: none; }
-  .pgrid { grid-template-columns: 1fr; }
+  .pgrid, .rgrid { grid-template-columns: 1fr; }
 }
