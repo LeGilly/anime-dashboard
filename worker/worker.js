@@ -129,6 +129,14 @@ export default {
       if (request.method !== "GET") return json({ error: "Only GET is allowed here." }, 405, cors);
       const type = url.searchParams.get("type");
       if (type !== "anime" && type !== "manga") return json({ error: "type must be anime or manga." }, 400, cors);
+      // Browsing MAL itself: search by name, a season's anime, or a top list. 50 titles per call (one MAL request).
+      if (url.pathname === "/browse") {
+        const target = browseUrl(type, url.searchParams);
+        if (target.error) return json({ error: target.error }, 400, cors);
+        const data = await mal(env, target.url);
+        const items = (data.data || []).map((d) => (d.ranking ? { ...d.node, rank: d.ranking.rank } : d.node));
+        return json({ type, items, more: !!(data.paging && data.paging.next) }, 200, cors);
+      }
       if (url.pathname === "/list") {
         const user = url.searchParams.get("user") || "";
         if (!/^[A-Za-z0-9_-]{2,16}$/.test(user)) return json({ error: "That doesn't look like a MAL username." }, 400, cors);
@@ -155,6 +163,35 @@ export default {
 };
 
 /* ---------- reading ---------- */
+
+const RANKINGS = {
+  anime: ["all", "airing", "upcoming", "tv", "movie", "ova", "special", "bypopularity", "favorite"],
+  manga: ["all", "manga", "novels", "oneshots", "manhwa", "manhua", "bypopularity", "favorite"],
+};
+const SEASONS = ["winter", "spring", "summer", "fall"];
+const PAGE = 50;
+function browseUrl(type, q) {
+  const offset = Math.min(Number(q.get("offset")) || 0, 1000);
+  const rest = `limit=${PAGE}&offset=${offset}&nsfw=true&fields=${FIELDS[type]}`;
+  const mode = q.get("mode");
+  if (mode === "search") {
+    const text = (q.get("q") || "").trim();
+    if (text.length < 3 || text.length > 64) return { error: "Search for 3 to 64 characters." };
+    return { url: `${MAL}/${type}?q=${encodeURIComponent(text)}&${rest}` };
+  }
+  if (mode === "ranking") {
+    const rank = q.get("rank") || "all";
+    if (!RANKINGS[type].includes(rank)) return { error: "Unknown ranking." };
+    return { url: `${MAL}/${type}/ranking?ranking_type=${rank}&${rest}` };
+  }
+  if (mode === "season" && type === "anime") {
+    const year = Number(q.get("year")), season = q.get("season");
+    if (!(year >= 1917 && year <= 2100) || !SEASONS.includes(season)) return { error: "Unknown season." };
+    const sort = q.get("sort") === "score" ? "anime_score" : "anime_num_list_users";
+    return { url: `${MAL}/anime/season/${year}/${season}?sort=${sort}&${rest}` };
+  }
+  return { error: "mode must be search, season (anime) or ranking." };
+}
 
 async function getList(env, user, type, token) {
   const kind = type === "anime" ? "animelist" : "mangalist";
@@ -358,6 +395,9 @@ function kindOf(url, method) {
   if (/^\/users\/[^/]+\/\w+list$/.test(p)) return "list";
   if (/\/my_list_status$/.test(p)) return method === "DELETE" ? "remove" : "edit";
   if (/^\/(anime|manga)\/\d+$/.test(p)) return /recommendations/.test(url) ? "links" : "details";
+  if (/^\/(anime|manga)$/.test(p)) return "search";
+  if (/\/ranking$/.test(p)) return "ranking";
+  if (/^\/anime\/season\//.test(p)) return "season";
   return "other";
 }
 function record(url, method, status, ms, res) {

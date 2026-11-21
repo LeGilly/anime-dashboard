@@ -193,7 +193,7 @@
   };
 
   // offline: only use what's saved (while MyAnimeList needs a break). pause: wait between calls.
-  MALD.loadDetails = async function (kind, ids, { offline = false, pause = 0, priority = 1, group = null } = {}) {
+  MALD.loadDetails = async function (kind, ids, { offline = false, pause = 0, priority = 1, group = null, progress = null } = {}) {
     const key = `mald:details:${kind}`;
     const cache = MALD.readCache(key);
     const now = Date.now();
@@ -213,6 +213,7 @@
           cache[node.id] = [now, d];
           details.set(node.id, d);
         }
+        if (progress) progress(Math.min(todo.length, i + MALD.CHUNK), todo.length);
       }
     } catch (err) {
       error = err.message;
