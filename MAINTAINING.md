@@ -18,6 +18,7 @@
 | `js/ui.js` | Everything on screen: tabs, detail panel, Related, Search, editor, toasts |
 | `worker/worker.js` | The Cloudflare Worker ("relay") between the page and MyAnimeList |
 | `CNAME` | `anime.legilly.com` for GitHub Pages |
+| `tests/`, `package.json`, `playwright.config.mjs` | The tests (see Testing) |
 
 ## Hosting
 
@@ -112,14 +113,18 @@ to be made. Save anything new through these functions, never with `localStorage.
 
 ## Testing
 
-There's no test suite in the repo. What has worked:
+How tests run (GitHub, locally, keeping them current) is in the hub's `MAINTAINING.md`, "Tests". `npm test` runs:
 
-- Serve the folder with `python -m http.server 8000` (localhost:8000 is an allowed account origin) and drive
-  it with Playwright, routing `https://api.legilly.com/**` to a mock (lists, `/details`, `/links`, `/browse`,
-  `/me`, `/me/list`, `/me/entry`).
-- Test `worker.js` with Node by importing it as a module and replacing `globalThis.fetch`.
-- Check light and dark mode and a phone width (390 px). Native pop-ups like the date picker only show in a
-  real (headful) browser, e.g. Chrome on a virtual screen (Xvfb) captured with a screenshot tool.
+- `tests/relay.test.mjs`: `worker.js` in Node, with `globalThis.fetch` replaced (origins, sign-in, cookies,
+  id limits, MAL errors).
+- Browser tests (`*.spec.mjs`) against the page served by `tests/serve.mjs` on localhost:8000, with
+  `tests/mock-relay.mjs` standing in for api.legilly.com using the made-up lists in `tests/fixtures/mal.json`
+  (owner `LeGilly`, a `Friend`, and `NoSuchUser` for a missing list). `account` (sign-in, +1, editor, dates,
+  busy MAL), `pages` (start page, tabs, URLs, privacy page, phone widths), `search`, `related`, `nextup`
+  (the request queue, pausing away from the tab), `storage` (full browser storage).
+- `fastQueue(page)` removes the request spacing so tests don't wait; tests that check the spacing set their own.
+- Still check light and dark mode by eye. Native pop-ups like the date picker only show in a real (headful)
+  browser, e.g. Chrome on a virtual screen (Xvfb) captured with a screenshot tool.
 
 ## Shared bar and themes: what's specific here
 

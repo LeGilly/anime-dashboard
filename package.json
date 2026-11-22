@@ -1,0 +1,14 @@
+{
+  "name": "anime-dashboard-tests",
+  "private": true,
+  "description": "Tests for Anime Dashboard (not used by the site itself).",
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/relay.test.mjs && playwright test",
+    "test:relay": "node --test tests/relay.test.mjs",
+    "test:pages": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.65.1"
+  }
+}
