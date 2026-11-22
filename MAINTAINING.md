@@ -15,10 +15,19 @@
 | `js/stats.js` | Stats tab numbers |
 | `js/recs.js` | Next up: taste profile, candidates, scoring, sequel checks, slowdown pace |
 | `js/account.js` | Sign-in state and list editing (talks to the relay with credentials) |
-| `js/ui.js` | Everything on screen: tabs, detail panel, Related, Search, editor, toasts |
+| `js/ui.js` | Shared state and helpers for the screen, and the Library, Progress and Stats views |
+| `js/ui-search.js` | The Search tab |
+| `js/ui-next.js` | The Next up tab and its background checks |
+| `js/ui-detail.js` | The detail panel, the editor, Related titles, and changes to your list |
+| `js/ui-main.js` | Sign-in state, loading lists, every button and key, and start-up (loaded last) |
 | `worker/worker.js` | The Cloudflare Worker ("relay") between the page and MyAnimeList |
 | `CNAME` | `anime.legilly.com` for GitHub Pages |
 | `tests/`, `package.json`, `playwright.config.mjs` | The tests (see Testing) |
+
+The `ui*.js` files share one object, `MALD.ui` (`U` in the code). Each file ends with `Object.assign(U, {...})`
+listing what the other files use, and starts by taking what it needs from the files loaded before it. Something
+from a file loaded later is called as `U.name()` at the time of use (e.g. `U.renderNext` in `ui.js`). The order of
+the script tags in `index.html` matters, and `ui-main.js` starts the page, so it comes last.
 
 ## Hosting
 
@@ -34,7 +43,8 @@
 
 ## Releasing
 
-- Version: `index.html` (footer `vX.Y.Z` and every `?v=`) and `privacy.html` (`?v=`).
+- Version: `index.html` (footer `vX.Y.Z` and every `?v=`) and `privacy.html` (`?v=`). A test checks they all
+  match the changelog. Any change to a JS or CSS file needs a new version, or browsers may mix old and new files.
 - If `worker/worker.js` changed, the owner must also redeploy it: Cloudflare → Workers & Pages →
   `anime-dashboard` → Edit code → paste the file → Deploy. Pushing to GitHub does not update the relay.
 - If anything stored in the browser, logged, or sent changes, update `privacy.html` to match.

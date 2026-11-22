@@ -98,3 +98,18 @@ test.describe("on a phone", () => {
     expect(await page.evaluate(() => { const d = document.querySelector("dialog"); return d.scrollWidth <= d.clientWidth; })).toBe(true);
   });
 });
+
+test("every ?v= matches the version in the footer and the changelog", async () => {
+  const { readFileSync } = await import("node:fs");
+  const read = (name) => readFileSync(new URL("../" + name, import.meta.url), "utf8");
+  const latest = read("CHANGELOG.md").match(/^## (\d+\.\d+\.\d+)/m)[1];
+  for (const page of ["index.html", "privacy.html"]) {
+    const html = read(page);
+    const versions = [...html.matchAll(/\?v=([\d.]+)/g)].map((m) => m[1]);
+    expect(versions.length).toBeGreaterThan(0);
+    expect(new Set(versions), `${page}: every ?v=`).toEqual(new Set([latest]));
+    // every local script and stylesheet carries one
+    for (const m of html.matchAll(/(?:src|href)="((?!https?:|#|data:)[^"]+\.(?:js|css)[^"]*)"/g)) expect(m[1], page).toContain("?v=");
+  }
+  expect(read("index.html")).toContain(`v${latest}</span>`);
+});

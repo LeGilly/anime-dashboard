@@ -1,5 +1,8 @@
 # Changelog
 
+## 2.6.1 · 2026-11-22
+- Behind the scenes: the page's main script is split into smaller files by area (no visible change)
+
 ## 2.6.0 · 2026-11-22
 - Signed in, the dashboard's address opens your own Library straight away; other people's lists still open from their address or Change list
 
