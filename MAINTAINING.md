@@ -99,8 +99,9 @@ to be made. Save anything new through these functions, never with `localStorage.
 ## Settled behaviour (decided with the owner)
 
 - Tabs: Search, Library, Progress, Next up, Stats. A loaded list (or a fresh sign-in) opens on Library.
-- The plain address opens the start page; a list opens only from `?user=` (plus optional `tab=`, `kind=`),
-  or right after signing in. "Change list" clears the address.
+- The plain address opens the start page, or your own Library when you're signed in. `?user=` (plus optional
+  `tab=`, `kind=`) opens that list, someone else's included while signed in. "Change list" clears the address
+  and shows the start page without reloading, so a signed-in user can load another list from there.
 - Quick +1 is on Progress cards and in the editor, not on Library covers.
 - Edits fill in fields the way MAL's own site does (e.g. completing sets all episodes and today's finish
   date); removing a title asks for confirmation.

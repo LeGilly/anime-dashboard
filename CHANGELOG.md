@@ -1,5 +1,8 @@
 # Changelog
 
+## 2.6.0 · 2026-11-22
+- Signed in, the dashboard's address opens your own Library straight away; other people's lists still open from their address or Change list
+
 ## 2.5.2 · 2026-11-21
 - The relay only answers the dashboard itself (no other sites or scripts)
 - When the browser's storage is full, the oldest saved title details make room instead of saves silently failing; the request log shows storage use

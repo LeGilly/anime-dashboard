@@ -15,7 +15,8 @@ A cleaner way to browse a MyAnimeList anime or manga list.
 Sign in with MyAnimeList to see your own list, private entries included, and edit it from here:
 episodes (+1 in one tap), scores, status, rewatching, dates, adding titles from Next up or from a title's
 sequels and prequels, and removing titles.
-While signed in you can still browse anyone else's list, and see which of their titles are on yours.
+Once signed in, opening the dashboard goes straight to your Library. You can still browse anyone else's list
+(with "Change list" or a link to it), and see which of their titles are on yours.
 See the [privacy notice](https://anime.legilly.com/privacy.html).
 
 ## Loading a list

@@ -1581,11 +1581,13 @@
       expired: "The sign-in took too long. Try again.",
     };
     const wanted = p.get("user");
-    const mineWanted = A.me && (signin === "ok" || (wanted && wanted.toLowerCase() === A.me.name.toLowerCase()));
+    // Signed in: your own list opens on the plain address, after signing in, or from ?user=<you>.
+    // ?user=<someone else> still opens their list.
+    const mineWanted = A.me && (signin === "ok" || !wanted || wanted.toLowerCase() === A.me.name.toLowerCase());
     if (signin && outcomes[signin]) toast(outcomes[signin], signin === "ok" ? "" : "warn");
     else if (A.unconfirmed) toast(`Couldn't reach MyAnimeList to confirm your sign-in.${mineWanted ? " Showing your saved list." : ""}`, "warn");
-    // The plain address always opens the start page; a list only opens when the address names one
-    // (?user=…), or right after signing in.
+    // Not signed in, the plain address opens the start page; a list only opens when the address names one
+    // (?user=…). "Change list" still reaches the start page while signed in (it doesn't reload the page).
     if (mineWanted) {
       if (!p.get("tab")) S.tab = "library";
       return openMine();
