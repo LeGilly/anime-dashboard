@@ -267,6 +267,7 @@ function checkChanges(type, changes) {
      votes         (type, title, tag, user_id, user_name, at)  one row per person per tag per title
      blocked_users (user_id, user_name, note, at)              can't vote; their votes stop counting
      blocked_words (word)                                      new tags can't contain these words
+     titles        (type, id, name, at)                        a tagged title's name, for reading the tables
    User ids and names come from MAL through the encrypted cookie, never from the request. */
 
 const TAG_MIN_VOTES = 1;      // votes a tag needs before it shows (raise it if the site gets busier)
@@ -279,6 +280,7 @@ const SCHEMA = [
   "CREATE INDEX IF NOT EXISTS votes_user ON votes (user_id, at)",
   "CREATE TABLE IF NOT EXISTS blocked_users (user_id INTEGER PRIMARY KEY, user_name TEXT, note TEXT, at INTEGER)",
   "CREATE TABLE IF NOT EXISTS blocked_words (word TEXT PRIMARY KEY)",
+  "CREATE TABLE IF NOT EXISTS titles (type TEXT NOT NULL, id INTEGER NOT NULL, name TEXT NOT NULL, at INTEGER NOT NULL, PRIMARY KEY (type, id))",
 ];
 const schemaReady = new WeakMap(); // once per database while this copy of the relay runs
 function db(env) {
@@ -353,12 +355,13 @@ async function myTags(request, env, url, session, h) {
     const tag = cleanTag(body && body.tag);
     if (tag.error) return json({ error: tag.error }, 400, h);
     const now = Date.now();
-    const [blocked, words, onTitle, lastHour, known] = await d.batch([
+    const [blocked, words, onTitle, lastHour, known, named] = await d.batch([
       d.prepare("SELECT 1 FROM blocked_users WHERE user_id = ?").bind(me.id),
       d.prepare("SELECT word FROM blocked_words"),
       d.prepare("SELECT COUNT(*) AS n FROM votes WHERE type = ? AND title = ? AND user_id = ?").bind(type, id, me.id),
       d.prepare("SELECT COUNT(*) AS n FROM votes WHERE user_id = ? AND at > ?").bind(me.id, now - 3600000),
       d.prepare("SELECT 1 FROM votes WHERE type = ? AND title = ? AND tag = ? AND user_id = ?").bind(type, id, tag.key, me.id),
+      d.prepare("SELECT 1 FROM titles WHERE type = ? AND id = ?").bind(type, id),
     ]);
     if (blocked.results.length) return json({ error: "Your account can't add tags." }, 403, h);
     if (known.results.length) return json(await titleTags(d, type, id, me.id), 200, h); // already voted: nothing to do
@@ -366,7 +369,18 @@ async function myTags(request, env, url, session, h) {
     if (words.results.some((w) => spaced.includes(` ${String(w.word).toLowerCase().trim()} `))) return json({ error: "That tag isn't allowed." }, 400, h);
     if (onTitle.results[0].n >= TAG_MAX_PER_TITLE) return json({ error: `You can give a title up to ${TAG_MAX_PER_TITLE} tags.` }, 400, h);
     if (lastHour.results[0].n >= TAG_PER_HOUR) return json({ error: "That's a lot of tags in an hour. Try again later." }, 429, h);
-    await d.batch([
+    // A title's first tag: ask MAL for its name (one request), kept so the tables are readable in the console.
+    // A title MAL doesn't know is refused; if MAL is busy, the vote still counts and the name is fetched next time.
+    const extra = [];
+    if (!named.results.length) {
+      try {
+        const node = await mal(env, `${MAL}/${type}/${id}?fields=title`);
+        if (node.title) extra.push(d.prepare("INSERT INTO titles (type, id, name, at) VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING").bind(type, id, String(node.title).slice(0, 300), now));
+      } catch (err) {
+        if (err.mal === 404) return json({ error: `There's no ${type} with that id on MyAnimeList.` }, 404, h);
+      }
+    }
+    await d.batch([...extra,
       d.prepare("INSERT INTO tags (key, label, at) VALUES (?, ?, ?) ON CONFLICT (key) DO NOTHING").bind(tag.key, tag.label, now),
       d.prepare("INSERT INTO votes (type, title, tag, user_id, user_name, at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING").bind(type, id, tag.key, me.id, me.name, now),
     ]);

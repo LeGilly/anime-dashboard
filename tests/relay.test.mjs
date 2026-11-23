@@ -7,6 +7,7 @@ import { fakeD1 } from "./fake-d1.mjs";
 const env = { MAL_CLIENT_ID: "cid", MAL_CLIENT_SECRET: "secret" };
 let tokenCalls = [], malCalls = [], expiresIn = 3600, meDown = false, tokenFail = 0;
 let currentMe = { id: 1, name: "LeGilly", picture: "p.jpg" }; // who MAL says is signing in
+let titlesDown = false; // MAL busy when the relay asks for a title's name
 globalThis.fetch = async (url, init = {}) => {
   url = String(url);
   if (url.includes("/oauth2/token")) {
@@ -17,6 +18,10 @@ globalThis.fetch = async (url, init = {}) => {
   }
   malCalls.push({ url, method: init.method || "GET", auth: init.headers && init.headers.Authorization, body: init.body && String(init.body) });
   if (url.includes("/users/@me?") && meDown) return new Response("busy", { status: 429 });
+  const titleAsk = url.match(/\/v2\/(anime|manga)\/(\d+)\?fields=title$/);
+  if (titleAsk && titleAsk[2] === "404404") return new Response("{}", { status: 404 });
+  if (titleAsk && titlesDown) return new Response("busy", { status: 504 });
+  if (titleAsk) return Response.json({ id: Number(titleAsk[2]), title: `Title ${titleAsk[2]}` });
   if (url.includes("/users/@me?")) return Response.json(currentMe);
   if (url.includes("/my_list_status") && init.method === "PATCH") return Response.json({ status: "watching", score: 8, num_episodes_watched: 5 });
   if (url.includes("/my_list_status") && init.method === "DELETE") return new Response(null, { status: 200 });
@@ -207,6 +212,18 @@ for (const [bad, why] of [["a", "too short"], ["x".repeat(25), "too long"], ["<s
 }
 r = await vote(alice, 6, "Mecha");
 ok(r.status === 200 && (await r.json()).tags[0][0] === "Mecha", "the database still works after odd input");
+ok(tagsDb.console("SELECT name FROM titles WHERE type = 'anime' AND id = 5")[0].name === "Title 5", "a title's name is fetched from MAL and kept with its first tag");
+let asks = malCalls.length;
+await vote(bob, 5, "Another one");
+ok(!malCalls.slice(asks).some((c) => c.url.includes("?fields=title")), "the name is only fetched once per title");
+r = await vote(alice, 404404, "Ghost");
+ok(r.status === 404 && tagsDb.console("SELECT COUNT(*) AS n FROM votes WHERE title = 404404")[0].n === 0, "a title MAL doesn't know can't be tagged");
+titlesDown = true;
+r = await vote(alice, 77, "Busy day");
+titlesDown = false;
+ok(r.status === 200 && tagsDb.console("SELECT COUNT(*) AS n FROM titles WHERE id = 77")[0].n === 0, "MAL busy: the vote still counts, without a name");
+await vote(bob, 77, "Busy day");
+ok(tagsDb.console("SELECT name FROM titles WHERE id = 77")[0].name === "Title 77", "the missing name is fetched on the next vote");
 r = await vote(alice, 6, "Isekai's best");
 ok(r.status === 200, "apostrophes and other alphabets are fine");
 r = await vote(alice, 6, "日常系");

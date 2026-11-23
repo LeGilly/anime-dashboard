@@ -124,6 +124,8 @@ tags ordered by votes (not who voted). Tags belong to titles, not to lists. Deci
   site gets busy and junk appears), `TAG_MAX_PER_TITLE` 20, `TAG_PER_HOUR` 60.
 - **Moderation is never on the website.** No admin endpoints, no admin page: the owner moderates in the
   Cloudflare dashboard (protected by the Cloudflare login) with the commands below.
+- A title's name is fetched from MAL once, with its first tag (`titles` table), only so the console is readable.
+  Ids MAL doesn't know are refused. If MAL is busy the vote still counts; the name comes with the next vote.
 - The page loads all tags for a kind in one call (`GET /tags`), fine while the site is small. If it ever gets
   big, switch to per-title calls.
 
@@ -135,15 +137,21 @@ Pages → `anime-dashboard` → Settings → Bindings → Add → D1 database �
 milliseconds (`datetime(at / 1000, 'unixepoch')` makes them readable).
 
 ```sql
--- Newest votes, with who made them
-SELECT datetime(v.at / 1000, 'unixepoch') AS time, v.type, v.title, t.label, v.user_name, v.user_id
-FROM votes v JOIN tags t ON t.key = v.tag ORDER BY v.at DESC LIMIT 50;
+-- Newest votes, with the title's name and who voted (times in UTC)
+SELECT datetime(v.at / 1000, 'unixepoch') AS time, v.type, v.title, n.name, t.label, v.user_name, v.user_id
+FROM votes v JOIN tags t ON t.key = v.tag LEFT JOIN titles n ON n.type = v.type AND n.id = v.title
+ORDER BY v.at DESC LIMIT 50;
 
 -- Most used tags
 SELECT t.label, t.key, COUNT(*) AS votes FROM votes v JOIN tags t ON t.key = v.tag GROUP BY v.tag ORDER BY votes DESC LIMIT 100;
 
 -- Everything one person did (find their user_id here)
-SELECT v.type, v.title, t.label, v.user_id FROM votes v JOIN tags t ON t.key = v.tag WHERE v.user_name = 'Name';
+SELECT v.type, v.title, n.name, t.label, v.user_id FROM votes v JOIN tags t ON t.key = v.tag
+LEFT JOIN titles n ON n.type = v.type AND n.id = v.title WHERE v.user_name = 'Name';
+
+-- Every tag on one title
+SELECT t.label, COUNT(*) AS votes FROM votes v JOIN tags t ON t.key = v.tag
+WHERE v.type = 'anime' AND v.title = 12345 GROUP BY v.tag ORDER BY votes DESC;
 
 -- Delete a tag everywhere
 DELETE FROM votes WHERE tag = 'bad tag';
