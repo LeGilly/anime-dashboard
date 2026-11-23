@@ -183,6 +183,9 @@ DELETE FROM blocked_words WHERE word = 'badword';
 ## Settled behaviour (decided with the owner)
 
 - Tabs: Search, Library, Progress, Next up, Stats. A loaded list (or a fresh sign-in) opens on Library.
+- Wording: "you/your" only for your own list (signed in) or an uploaded export; a list loaded by username is
+  "they/their" in every tab, signed in or not, never the owner's name (`owner()` and `words()` in `ui.js`;
+  Next up's reasons get them through `opts.words`). "My list" is only for the visitor's own list beside theirs.
 - "Blur 18+ covers" (`MALD.isAdult`): anime go by MAL's age rating (R+ and Rx blurred), because MAL's "gray"
   flag also covers all-ages shows (e.g. Chiikawa). Manga have no rating in MAL's API, so they use the flag
   (anything not "white"). Hentai/Erotica genres and the "black" flag are always blurred.

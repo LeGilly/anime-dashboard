@@ -1,6 +1,6 @@
 // The Search tab: name search, seasons, top lists, filters, adding results.
 import { test, expect } from "@playwright/test";
-import { mockRelay } from "./mock-relay.mjs";
+import { mockRelay, fastQueue } from "./mock-relay.mjs";
 
 test("name search: 3 characters, 50 results a page, filters, add a result", async ({ page }) => {
   const state = await mockRelay(page, { signed: true });
@@ -70,4 +70,41 @@ test("manga has no seasons", async ({ page }) => {
   await page.click("[data-kind=manga]");
   await expect(page.locator("[data-bmode=ranking]")).toBeVisible();
   await expect(page.locator("[data-bmode=season]")).toHaveCount(0);
+});
+
+test("a list loaded by name is worded as theirs in every tab, never by name or as yours", async ({ page }) => {
+  await mockRelay(page);
+  await page.goto("/?user=LeGilly&tab=search");
+  await page.click("[data-bmode=ranking]");
+  await expect(page.locator(".rcard").first()).toBeVisible();
+  const tags = (await page.locator(".rcard .tag").allTextContents()).join(" | ");
+  expect(tags).toContain("On their list:");
+  expect(tags).toContain("Not on their list");
+  await expect(page.locator("label.chk", { hasText: "Hide titles" })).toHaveText(/on their list/);
+  await page.locator(".rcard .tag", { hasText: "On their list" }).first().click();
+  await expect(page.locator("dialog[open] h3").first()).toHaveText("On their list");
+  await page.keyboard.press("Escape");
+  await fastQueue(page);
+  await page.click("[data-tab=next]");
+  await expect(page.locator(".rcard").first()).toBeVisible({ timeout: 60_000 });
+  for (const tab of ["search", "library", "progress", "next", "stats"]) {
+    await page.click(`[data-tab=${tab}]`);
+    const text = await page.locator("#view").innerText();
+    expect(text, tab).not.toMatch(/\b(you|your|you've|you're)\b/i);
+    expect(text, tab).not.toContain("LeGilly's");
+  }
+  await page.click("[data-tab=next]");
+  await expect(page.locator("#view")).toContainText("Sequels to shows they finished.");
+});
+
+test("your own list still says you and your", async ({ page }) => {
+  await mockRelay(page, { signed: true });
+  await page.goto("/");
+  await expect(page.locator(".tile").first()).toBeVisible();
+  await fastQueue(page);
+  await page.click("[data-tab=next]");
+  await expect(page.locator("#view")).toContainText("Sequels to shows you finished.", { timeout: 60_000 });
+  await expect(page.locator("[data-rsource=new]")).toHaveText("Not on your list");
+  await page.click("[data-tab=library]");
+  await expect(page.locator("#fSort option").first()).toHaveText("Your score");
 });

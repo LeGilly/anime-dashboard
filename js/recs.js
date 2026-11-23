@@ -297,15 +297,17 @@
 
   MALD.recommend = function (entries, kind, links, details, opts, titleOf) {
     const { profile, cands, byId, favs } = gather(entries, links);
+    // Whose list it is, for wording ("you" on your own list, "they" on someone else's): from the page.
+    const w = opts.words || { you: "you", You: "You", your: "your", Youve: "You've", havent: "you haven't" };
     const sigOf = (e) => profile.sig.get(e.id) ?? 0;
-    const why = (e) => (e.score ? ` (you rated it ${e.score})` : repeated(e) ? ` (you ${kind === "manga" ? "reread" : "rewatched"} it)` : "");
+    const why = (e) => (e.score ? ` (${w.you} rated it ${e.score})` : repeated(e) ? ` (${w.you} ${kind === "manga" ? "reread" : "rewatched"} it)` : "");
     const unit = kind === "manga" ? "manga" : "titles";
     // A genre/studio reason: their average score if you've scored enough of them, otherwise what you finished.
     const tasteReason = (name, g, isCreator) => {
-      if (g.scoredN >= 3) return `You rate ${name} ${g.avgScore.toFixed(1)} on average`;
+      if (g.scoredN >= 3) return `${w.You} rate ${name} ${g.avgScore.toFixed(1)} on average`;
       if (g.done >= 3) return isCreator
-        ? `You've finished ${g.done} ${unit} ${kind === "manga" ? "by" : "from"} ${name}`
-        : `You've finished ${g.done} ${name} ${unit}${g.dropped ? "" : ", and dropped none"}`;
+        ? `${w.Youve} finished ${g.done} ${unit} ${kind === "manga" ? "by" : "from"} ${name}`
+        : `${w.Youve} finished ${g.done} ${name} ${unit}${g.dropped ? "" : ", and dropped none"}`;
       return null;
     };
     const maxRec = Math.max(1, ...[...cands.values()].map((c) => c.recPts));
@@ -399,9 +401,9 @@
     // What the picks are based on, so the page can say so.
     const done = anime ? "finished, rewatched or dropped" : "finished, reread or dropped";
     const basis = !profile.total ? "empty"
-      : !profile.scored ? `Based on what you ${done}, since you haven't scored anything yet. Scoring titles makes these picks more personal.`
-      : profile.scored / profile.total >= 0.8 ? "Based mainly on your scores."
-      : `Based on your scores, and on what you ${done} for titles you haven't scored.`;
+      : !profile.scored ? `Based on what ${w.you} ${done}, since ${w.havent} scored anything yet. Scoring titles makes these picks more personal.`
+      : profile.scored / profile.total >= 0.8 ? `Based mainly on ${w.your} scores.`
+      : `Based on ${w.your} scores, and on what ${w.you} ${done} for titles ${w.havent} scored.`;
     return { cont, recommended, comingUp, genres, pool: new Map(out.map((x) => [x.e.id, x.e])), profile, basis, favorites: favs.length };
   };
 })();

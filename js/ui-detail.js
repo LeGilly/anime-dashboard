@@ -29,7 +29,7 @@
   function listSection(e, theirs) {
     const anime = e.kind === "anime";
     if (canEdit()) return e.status ? `<h3>On your list</h3>${editor(e)}` : `<h3>On your list</h3><p>Not on your list yet.</p>${addButton(e)}`;
-    const whose = A.me ? `On ${esc(S.data.user)}'s list` : "On your list";
+    const whose = `On ${owner()} list`;
     let html = `<h3>${whose}</h3><dl>${theirs}</dl>`;
     if (A.me) {
       const m = A.myEntry(e.kind, e.id);

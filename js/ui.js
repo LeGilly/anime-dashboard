@@ -49,8 +49,15 @@
   const A = MALD.account;
   // Editing only on your own list, while signed in.
   const canEdit = () => !!(A.me && S.data && S.data.source === "mine");
-  // Whose list is on screen, for wording: "your" unless you're signed in and browsing someone else's.
-  const owner = () => (A.me && S.data && S.data.source !== "mine" ? "their" : "your");
+  // Whose list is on screen, for wording: "your" for your own list (signed in) or an export you uploaded;
+  // "their" for a list loaded by username, since anyone can load anyone's list.
+  const owner = () => (S.data && S.data.source === "live" ? "their" : "your");
+  // The same, for whole sentences: words(). Your own list says "you", someone else's says "they", never a name.
+  const WORDS = {
+    your: { you: "you", You: "You", your: "your", Your: "Your", youre: "you're", Youve: "You've", havent: "you haven't", them: "you" },
+    their: { you: "they", You: "They", your: "their", Your: "Their", youre: "they're", Youve: "They've", havent: "they haven't", them: "them" },
+  };
+  const words = () => WORDS[owner()];
   let toastTimer;
   function toast(text, kind) {
     const t = $("toast");
@@ -209,7 +216,7 @@
       .concat(MALD.STATUS_UI.map((s) => `<button class="chip" data-status="${s}" aria-pressed="${L.status === s}"><i class="dot st-${s}"></i>${esc(MALD.statusLabel(s, S.kind))} <small>${MALD.fmtNum(counts[s] || 0)}</small></button>`))
       .join("");
 
-    const sortOpts = [["score", "Your score"], ["mean", "MAL score"], ["title", "Title"], ["year", "Newest"], ["members", "Most popular"]]
+    const sortOpts = [["score", `${words().Your} score`], ["mean", "MAL score"], ["title", "Title"], ["year", "Newest"], ["members", "Most popular"]]
       .concat(hasUpdated ? [["updated", "Last updated"]] : [])
       .map(([v, t]) => `<option value="${v}"${L.sort === v ? " selected" : ""}>${t}</option>`).join("");
 
@@ -257,7 +264,7 @@
       <span class="r-title"><strong>${esc(titleOf(e))}</strong><small>${esc([e.mediaType, e.year, e.creators.slice(0, 2).join(", ")].filter(Boolean).join(" · "))}</small></span>
       <span class="pill"><i class="dot st-${e.status}"></i>${esc(statusText(e))}</span>
       <span class="r-prog">${progressText(e)}<span class="pbar"><i data-w="${pct(e).toFixed(1)}"></i></span></span>
-      <span class="r-score" title="Your score">${e.score ? "★ " + e.score : "–"}</span>
+      <span class="r-score" title="${words().Your} score">${e.score ? "★ " + e.score : "–"}</span>
       <span class="r-mean" title="MAL score">${e.mean ? e.mean.toFixed(2) : ""}</span>
     </button>`;
   }
@@ -320,7 +327,7 @@
     const queueShown = S.expand.queue ? queue : queue.slice(0, QLIMIT);
 
     view.innerHTML = `
-      ${section(MALD.statusLabel("current", S.kind), active.length && anime && leftSecs ? `About ${MALD.fmtDur(leftSecs)} left to finish everything you're watching.` : "", active, (e) => card(e), `Nothing in progress.`)}
+      ${section(MALD.statusLabel("current", S.kind), active.length && anime && leftSecs ? `About ${MALD.fmtDur(leftSecs)} left to finish everything ${words().youre} watching.` : "", active, (e) => card(e), `Nothing in progress.`)}
       ${stale.length ? section("Gone quiet", `Watching or on hold, but not touched in over 3 months.`, stale, (e) => card(e, MALD.statusLabel(e.status, e.kind)), "", "quiet") : ""}
       ${onHold.length ? section("On hold", "", onHold, (e) => card(e), "", "hold") : ""}
       ${!hasUpdated ? `<p class="hint">XML exports don't say when entries were last changed, so the "gone quiet" list only appears for live lists.</p>` : ""}
@@ -336,7 +343,7 @@
           ${cover(e, "thumb sm")}
           <span class="r-title"><strong>${esc(titleOf(e))}</strong><small>${esc([e.mediaType, e.year, e.total ? `${e.total} ${unitName(e.total)}` : "", e.airStatus === "not_yet_aired" ? "Not aired yet" : ""].filter(Boolean).join(" · "))}</small></span>
           <span class="r-mean" title="MAL score">${e.mean ? e.mean.toFixed(2) : ""}</span>
-        </button></li>`).join("")}</ol>${moreBtn("queue", queue.length, QLIMIT)}` : `<p class="hint">Your queue is empty.</p>`}
+        </button></li>`).join("")}</ol>${moreBtn("queue", queue.length, QLIMIT)}` : `<p class="hint">${words().Your} queue is empty.</p>`}
       </section>`;
   }
 
@@ -411,7 +418,7 @@
     const anime = S.kind === "anime";
     const h = MALD.history(entries);
     if (!h.years.length) {
-      return `<section class="block"><h2>History</h2><p class="hint">None of your completed titles have a finish date on MyAnimeList, so there's no history to show.</p></section>`;
+      return `<section class="block"><h2>History</h2><p class="hint">None of ${words().your} completed titles have a finish date on MyAnimeList, so there's no history to show.</p></section>`;
     }
     const metrics = [["count", "Titles completed"], [anime ? "seconds" : "units", anime ? "Time watched" : "Chapters read"]];
     const metric = metrics.some((m) => m[0] === S.histMetric) ? S.histMetric : "count";
@@ -436,7 +443,7 @@
       <div class="bhead"><h2>History</h2>
         <div class="seg small" data-hist-metrics>${metrics.map(([v, t]) => `<button data-hmetric="${v}" aria-pressed="${metric === v}">${t}</button>`).join("")}</div>
       </div>
-      <p class="hint">By the finish date you set on MyAnimeList. Click a year to see its months.</p>
+      <p class="hint">By the finish date ${words().you} set on MyAnimeList. Click a year to see its months.</p>
       <h3>By year</h3>
       ${columns(years, (y) => y.year, (y) => (years.length > 14 ? `'${String(y.year).slice(2)}` : y.year), (y) => `${y.year}: ${fmt(y[metric])} ${label}`, S.histYear, "data-year")}
       <h3>${sel.year} by month</h3>
@@ -449,5 +456,5 @@
     </section>`;
   }
 
-  Object.assign(U, { $, A, PAGE, S, canEdit, cover, esc, hidden18, list, malUrl, options, owner, progressText, render, savePrefs, setStatus, show, statusText, syncUrl, tagOptions, titleOf, toast });
+  Object.assign(U, { $, A, PAGE, S, canEdit, cover, esc, hidden18, list, malUrl, options, owner, progressText, render, savePrefs, setStatus, show, statusText, syncUrl, tagOptions, titleOf, toast, words });
 })();

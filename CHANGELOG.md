@@ -1,5 +1,8 @@
 # Changelog
 
+## 2.8.1 · 2026-11-23
+- A list loaded by username is now worded as "their" list in every tab (Search, details, Progress, Next up and its reasons, Stats), signed in or not; "you" and "your" are for your own list and uploaded exports
+
 ## 2.8.0 · 2026-11-23
 - Age rating (G, PG, PG-13, R, R+, Rx) in an anime's details
 - "Blur 18+ covers" now goes by the age rating for anime (R+ and Rx), so all-ages shows MyAnimeList flags as "gray" (like Chiikawa) aren't blurred any more. Manga work as before

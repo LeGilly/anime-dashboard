@@ -102,7 +102,7 @@ test("someone else's list: read-only, your status shown, add to your plan", asyn
     return [ids.find((id) => mine.has(id)), ids.find((id) => !mine.has(id))];
   });
   await page.click(`.tile[data-id='${both}']`);
-  await expect(page.locator("dialog[open]")).toContainText("On Friend's list");
+  await expect(page.locator("dialog[open]")).toContainText("On their list");
   await expect(page.locator("dialog[open]")).toContainText("On your list");
   await expect(page.locator("dialog .editor")).toHaveCount(0);
   await page.keyboard.press("Escape");

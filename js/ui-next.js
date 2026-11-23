@@ -59,7 +59,7 @@
           await MALD.fetchLinks(plan, first.slice(i, i + MALD.CHUNK), { priority: 1, group });
           st.done = Math.min(first.length, i + MALD.CHUNK);
           const el = $("recProgress");
-          if (el) el.textContent = `Looking at your favorite ${label} on MyAnimeList… ${st.done}/${st.total}`;
+          if (el) el.textContent = `Looking at ${U.words().your} favorite ${label} on MyAnimeList… ${st.done}/${st.total}`;
         }
       } catch (err) { stop(err); }
     }
@@ -180,10 +180,10 @@
     // The first lookups (before any sequel check) are a step of their own; later ones happen quietly
     // under the sequel count, as "new titles found".
     if (lk && !st.bg.done) return `Looking up ${MALD.fmtNum(lk.total)} suggested title${lk.total === 1 ? "" : "s"} (genres, length, airing)… ${MALD.fmtNum(lk.done)}/${MALD.fmtNum(lk.total)}. `
-      + (st.bg.total ? `Then checking your ${label} for sequels (${MALD.fmtNum(st.bg.done)}/${MALD.fmtNum(st.bg.total)}).` : "");
+      + (st.bg.total ? `Then checking ${U.words().your} ${label} for sequels (${MALD.fmtNum(st.bg.done)}/${MALD.fmtNum(st.bg.total)}).` : "");
     if (st.bg && st.bg.running && st.bg.total) {
       const found = st.bg.found ? ` ${MALD.fmtNum(st.bg.found)} new title${st.bg.found === 1 ? "" : "s"} found so far.` : "";
-      return `Checking your ${label} for sequels… ${MALD.fmtNum(st.bg.done)}/${MALD.fmtNum(st.bg.total)}.${found} Results update as it goes.`;
+      return `Checking ${U.words().your} ${label} for sequels… ${MALD.fmtNum(st.bg.done)}/${MALD.fmtNum(st.bg.total)}.${found} Results update as it goes.`;
     }
     if (st.bg && st.bg.running) return "Looking up suggested titles…";
     return "";
@@ -211,7 +211,8 @@
   // Under "Continue a series": which titles are checked for sequels (only shown when some aren't).
   function sweepNote(st) {
     if (!st.others) return "";
-    return " Only your favorites, and titles you finished or updated in the last 2 years, rated above your average or rewatched, are checked.";
+    const w = U.words();
+    return ` Only ${w.your} favorites, and titles ${w.you} finished or updated in the last 2 years, rated above ${w.your} average or rewatched, are checked.`;
   }
 
   function updateBgNote(kind) {
@@ -225,7 +226,7 @@
     const st = S.recData[S.kind];
     if (!st) { loadRecs(S.kind, entries); return renderNext(view, entries); }
     if (st.status === "loading") {
-      view.innerHTML = `<div class="empty"><p class="sub busy" id="recProgress">Looking at your ${anime ? "anime" : "manga"} on MyAnimeList…${st.total ? ` ${st.done}/${st.total}` : ""}</p>
+      view.innerHTML = `<div class="empty"><p class="sub busy" id="recProgress">Looking at ${U.words().your} ${anime ? "anime" : "manga"} on MyAnimeList…${st.total ? ` ${st.done}/${st.total}` : ""}</p>
         <p class="hint">The first time takes a little while. After that it's saved in your browser for a week.</p></div>`;
       return;
     }
@@ -236,7 +237,7 @@
     const lOn = ticked(allLengths, N.lengthsOff);
     const res = MALD.recommend(entries, S.kind, st.links, st.details,
       { source: N.source, genres: ticked(allGenres, N.genresOff), matchAll: N.matchAll, excludes: N.excludes,
-        lengths: ticked(allLengths, N.lengthsOff), airing: N.airing, hideAdult: S.prefs.blur }, titleOf);
+        lengths: ticked(allLengths, N.lengthsOff), airing: N.airing, hideAdult: S.prefs.blur, words: U.words() }, titleOf);
     S.recPool = res.pool;
     // Community tag filter: only suggestions with the chosen tag.
     const tagNames = U.tagOptions([...res.pool.keys()]);
@@ -277,6 +278,7 @@
       </div>`;
     };
     const plan = anime ? "Plan to watch" : "Plan to read";
+    const W = U.words(); // "you"/"your" on your own list, "they"/"their" on someone else's
 
     const card = (x, extra) => {
       const e = x.e;
@@ -314,7 +316,7 @@
     view.innerHTML = `
       <div class="filters">
         <div class="seg small" id="recSource" aria-label="Suggestions from">
-          ${[["both", "Everything"], ["list", plan], ["new", "Not on my list"]].map(([v, t]) => `<button data-rsource="${v}" aria-pressed="${N.source === v}">${t}</button>`).join("")}
+          ${[["both", "Everything"], ["list", plan], ["new", `Not on ${W.your} list`]].map(([v, t]) => `<button data-rsource="${v}" aria-pressed="${N.source === v}">${t}</button>`).join("")}
         </div>
         ${multi("genresOff", "Genres", allGenres.map((g) => [g, g]), (g) => !N.genresOff.includes(g),
           !gOn ? "Any genre" : !gOn.length ? "No genre" : gOn.length <= 2 ? gOn.join(N.matchAll ? " + " : ", ") : `${gOn.length} genres`, !!gOn,
@@ -326,14 +328,14 @@
         <label class="check"><input type="checkbox" id="rAiring"${N.airing ? " checked" : ""}> Include ${anime ? "airing" : "ongoing"}</label>
         ${tagNames.length ? `<select id="rTag" aria-label="Tag">${options(tagNames, N.tag, "Any tag")}</select>` : ""}
       </div>
-      ${res.basis === "empty" ? `<p class="basis">There's nothing ${anime ? "watched" : "read"}, ${anime ? "watching" : "reading"} or dropped on this list yet, so these picks only use your ${plan.toLowerCase()} and MyAnimeList scores. They'll get more personal as your list grows.</p>`
+      ${res.basis === "empty" ? `<p class="basis">There's nothing ${anime ? "watched" : "read"}, ${anime ? "watching" : "reading"} or dropped on this list yet, so these picks only use ${W.your} ${plan.toLowerCase()} and MyAnimeList scores. They'll get more personal as ${W.your} list grows.</p>`
         : `<p class="basis">${esc(res.basis)}</p>`}
       <p class="hint center${st.bg && st.bg.running ? " busy" : ""}" id="recBg"${bgNoteText(st) ? "" : " hidden"}>${esc(bgNoteText(st))}</p>
       ${pausedBanner(st)}
       ${S.prefs.blur ? `<p class="hint center">18+ titles are left out while "Blur 18+ covers" is on in Settings.</p>` : ""}
-      ${section("Continue a series", `Sequels to ${anime ? "shows" : "series"} you finished.${sweepNote(st)}`, res.cont, "No sequels waiting for you with these filters.", { limit: N.contShown, more: "cmore", extra: "" })}
-      ${section("Recommended for you", "Based on what you rate highly, and what MyAnimeList users recommend from your favorites.", res.recommended, "Nothing matches these filters.", { limit: N.shown, more: "rmore" })}
-      ${section("Coming up", `Related to ${anime ? "shows" : "series"} you've seen, or on your ${plan.toLowerCase()}: not out yet, or still ${anime ? "airing" : "ongoing"}.`, res.comingUp, "Nothing announced right now.", { limit: N.soonShown, more: "smore", extra: "soon" })}`;
+      ${section("Continue a series", `Sequels to ${anime ? "shows" : "series"} ${W.you} finished.${sweepNote(st)}`, res.cont, `No sequels waiting for ${W.them} with these filters.`, { limit: N.contShown, more: "cmore", extra: "" })}
+      ${section(`Recommended for ${W.them}`, `Based on what ${W.you} rate highly, and what MyAnimeList users recommend from ${W.your} favorites.`, res.recommended, "Nothing matches these filters.", { limit: N.shown, more: "rmore" })}
+      ${section("Coming up", `Related to ${anime ? "shows" : "series"} ${W.you}'ve seen, or on ${W.your} ${plan.toLowerCase()}: not out yet, or still ${anime ? "airing" : "ongoing"}.`, res.comingUp, "Nothing announced right now.", { limit: N.soonShown, more: "smore", extra: "soon" })}`;
   }
 
 

@@ -120,7 +120,7 @@
     const shown = items.filter((e) => (!B.type || e.mediaType === B.type) && !(B.hideListed && listed.has(e.id))
       && (!B.tagF || MALD.tags.has(S.kind, e.id, B.tagF)));
     const hidden = items.length - shown.length;
-    const whose = owner() === "your" ? "your" : `${esc(S.data.user)}'s`;
+    const whose = owner();
     const filters = items.length ? `<div class="filters bfilters">
         <select data-b="type" aria-label="Type">${opts([["", "All types"], ...types.map((t) => [t, t])], B.type)}</select>
         ${tagNames.length ? `<select data-b="tagF" aria-label="Tag">${opts([["", "All tags"], ...tagNames.map((t) => [t, t])], B.tagF)}</select>` : ""}
