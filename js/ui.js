@@ -14,7 +14,7 @@
     data: null,
     kind: "anime",
     tab: "library",
-    lib: { status: "all", q: "", type: "", genre: "", creator: "", year: "", sort: "score", view: "grid", shown: PAGE },
+    lib: { status: "all", q: "", type: "", genre: "", tag: "", creator: "", year: "", sort: "score", view: "grid", shown: PAGE },
     queueSort: "mean",
     groupMode: { genres: "count", creators: "count" },
     expand: { quiet: false, hold: false, queue: false },
@@ -22,14 +22,14 @@
     histMetric: "count",
     histYear: null,
     // Genres and lengths remember what's unticked, so everything starts ticked.
-    next: { source: "both", genresOff: [], matchAll: false, excludes: [], lengthsOff: [], airing: false, shown: 12, contShown: 6, soonShown: 6 },
+    next: { source: "both", genresOff: [], matchAll: false, excludes: [], lengthsOff: [], airing: false, tag: "", shown: 12, contShown: 6, soonShown: 6 },
     openMulti: null,
     msearch: {},
     recData: {},
     recPool: new Map(),
     relPool: new Map(),   // related titles opened from a detail panel (not on the list being viewed)
     searchPool: new Map(), // titles found with Search, by "kind:id"
-    browse: { mode: "search", q: "", rank: "all", year: 0, season: "", sort: "members", type: "", hideListed: false, results: new Map() },
+    browse: { mode: "search", q: "", rank: "all", year: 0, season: "", sort: "members", type: "", tagF: "", tag: "", hideListed: false, results: new Map() },
     detailId: null,       // title shown in the detail panel
     detailTrail: [],      // titles you came from, through "Related", for the Back button
     prefs: { english: false, blur: true },
@@ -160,6 +160,16 @@
     return [...m.entries()].sort((a, b) => b[1] - a[1] || String(a[0]).localeCompare(String(b[0]))).map((x) => x[0]);
   }
 
+  // Community tags on these titles, most common first (empty while tags load, or if they're off).
+  function tagOptions(ids, kind = S.kind) {
+    const T = MALD.tags;
+    T.ensure(kind);
+    if (!T.ready(kind)) return [];
+    const count = new Map();
+    for (const id of ids) for (const [l] of T.forTitle(kind, id)) count.set(l, (count.get(l) || 0) + 1);
+    return [...count.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map((x) => x[0]);
+  }
+
   function filtered(entries) {
     const L = S.lib;
     const q = L.q.trim().toLowerCase();
@@ -167,6 +177,7 @@
       (L.status === "all" || e.status === L.status) &&
       (!L.type || e.mediaType === L.type) &&
       (!L.genre || e.genres.includes(L.genre)) &&
+      (!L.tag || MALD.tags.has(S.kind, e.id, L.tag)) &&
       (!L.creator || e.creators.includes(L.creator)) &&
       (!L.year || String(e.year) === L.year) &&
       (!q || e.title.toLowerCase().includes(q) || e.titleEn.toLowerCase().includes(q)));
@@ -191,6 +202,8 @@
     const shown = items.slice(0, L.shown);
     const creatorLabel = S.kind === "anime" ? "All studios" : "All authors";
     const years = [...new Set(entries.map((e) => e.year).filter(Boolean))].sort((a, b) => b - a);
+    const tagNames = tagOptions(entries.map((e) => e.id));
+    if (L.tag && !tagNames.some((t) => t.toLowerCase() === L.tag.toLowerCase())) L.tag = "";
 
     const chips = [`<button class="chip" data-status="all" aria-pressed="${L.status === "all"}">All <small>${MALD.fmtNum(entries.length)}</small></button>`]
       .concat(MALD.STATUS_UI.map((s) => `<button class="chip" data-status="${s}" aria-pressed="${L.status === s}"><i class="dot st-${s}"></i>${esc(MALD.statusLabel(s, S.kind))} <small>${MALD.fmtNum(counts[s] || 0)}</small></button>`))
@@ -213,6 +226,7 @@
         ${hasDetails ? `<select id="fGenre" aria-label="Genre">${options(countSorted(entries, (e) => e.genres), L.genre, "All genres")}</select>
         <select id="fCreator" aria-label="${S.kind === "anime" ? "Studio" : "Author"}">${options(countSorted(entries, (e) => e.creators), L.creator, creatorLabel)}</select>` : ""}
         ${years.length ? `<select id="fYear" aria-label="Year">${options(years, L.year, "All years")}</select>` : ""}
+        ${tagNames.length ? `<select id="fTag" aria-label="Tag">${options(tagNames, L.tag, "All tags")}</select>` : ""}
         <label class="sortby">Sort <select id="fSort">${sortOpts}</select></label>
         <div class="seg small" id="viewSeg">
           <button data-view="grid" aria-pressed="${L.view === "grid"}" title="Cover grid">Grid</button>
@@ -435,5 +449,5 @@
     </section>`;
   }
 
-  Object.assign(U, { $, A, PAGE, S, canEdit, cover, esc, hidden18, list, malUrl, options, owner, progressText, render, savePrefs, setStatus, show, statusText, syncUrl, titleOf, toast });
+  Object.assign(U, { $, A, PAGE, S, canEdit, cover, esc, hidden18, list, malUrl, options, owner, progressText, render, savePrefs, setStatus, show, statusText, syncUrl, tagOptions, titleOf, toast });
 })();

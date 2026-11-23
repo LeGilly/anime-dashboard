@@ -3,10 +3,11 @@
 (function () {
   const MALD = window.MALD;
   const U = MALD.ui;
-  const { $, A, S, cover, esc, list, owner, render, statusText, titleOf } = U;
+  const { $, A, S, cover, esc, list, owner, render, statusText, tagOptions, titleOf } = U;
 
   /* ---------- Search: all of MyAnimeList ----------
-     Search by name, this season's anime, or MAL's top lists; 50 titles per MAL request, kept for this visit. */
+     Search by name, this season's anime, or MAL's top lists; 50 titles per MAL request, kept for this visit.
+     "By tag" lists the titles carrying a community tag, most votes first (names and covers looked up as needed). */
   const RANK_LABELS = {
     anime: [["all", "Top anime"], ["airing", "Top airing"], ["upcoming", "Top upcoming"], ["tv", "Top TV series"], ["movie", "Top movies"],
       ["ova", "Top OVAs"], ["special", "Top specials"], ["bypopularity", "Most popular"], ["favorite", "Most favorited"]],
@@ -21,6 +22,8 @@
   // What to ask MAL for, given the current choices (null: nothing to ask yet, e.g. an empty search box).
   function browseParams() {
     const B = S.browse;
+    // v: tags change as people vote, so each change gets a fresh list.
+    if (B.mode === "tag") return B.tag && MALD.tags.ready(S.kind) ? { mode: "tag", tag: B.tag.toLowerCase(), v: MALD.tags.version } : null;
     if (B.mode === "search") return B.q.trim().length >= 3 ? { mode: "search", q: B.q.trim() } : null;
     if (B.mode === "season") {
       if (!B.year) Object.assign(B, currentSeason());
@@ -29,6 +32,7 @@
     return { mode: "ranking", rank: B.rank };
   }
   async function fetchBrowse(key, params, r) {
+    if (params.mode === "tag") return fetchTagged(key, params, r);
     r.loading = true; r.error = "";
     try {
       const res = await MALD.relay("/browse", { type: S.kind, ...params, offset: r.items.length }, { priority: 0 });
@@ -47,17 +51,42 @@
     if (S.tab === "search" && S.browse.results.get(key) === r) render();
   }
 
+  // The next 50 titles with a tag: from the list on screen when they're on it, else MAL's details (saved for a week).
+  async function fetchTagged(key, params, r) {
+    r.loading = true; r.error = "";
+    const kind = S.kind;
+    const ids = MALD.tags.titlesWith(kind, params.tag).map(([id]) => id);
+    const next = ids.filter((id) => !r.items.some((x) => x.id === id)).slice(0, 50);
+    const listed = new Map((list() || []).map((x) => [x.id, x]));
+    const need = next.filter((id) => !listed.has(id) && !S.searchPool.has(`${kind}:${id}`));
+    const { details, error } = need.length ? await MALD.loadDetails(kind, need, { priority: 0 }) : { details: new Map(), error: null };
+    for (const id of next) {
+      let e = S.searchPool.get(`${kind}:${id}`);
+      if (!e && listed.has(id)) e = listed.get(id);
+      if (!e && details.get(id) && !details.get(id).missing) {
+        e = MALD.makeEntry(Object.assign({ id, kind }, details.get(id), { status: null }));
+        S.searchPool.set(`${kind}:${id}`, e);
+      }
+      if (e && !r.items.some((x) => x.id === id)) r.items.push(e);
+    }
+    r.error = error || "";
+    r.more = ids.length > r.items.length && !error;
+    r.loading = false;
+    if (S.tab === "search" && S.browse.results.get(key) === r) render();
+  }
+
   function renderSearch(view) {
     const B = S.browse;
     const anime = S.kind === "anime";
     if (!anime && B.mode === "season") B.mode = "ranking";
     if (!RANK_LABELS[S.kind].some(([v]) => v === B.rank)) B.rank = "all";
+    if (B.mode === "tag" && MALD.tags.off) B.mode = "search";
     const params = browseParams();
     const key = params ? `${S.kind}|${JSON.stringify(params)}` : "";
     let r = key ? B.results.get(key) : null;
     if (key && !r) { r = { items: [], more: false, loading: false, error: "" }; B.results.set(key, r); fetchBrowse(key, params, r); }
 
-    const modes = [["search", "Search"], ...(anime ? [["season", "This season"]] : []), ["ranking", "Top ranked"]];
+    const modes = [["search", "Search"], ...(anime ? [["season", "This season"]] : []), ["ranking", "Top ranked"], ...(MALD.tags.off ? [] : [["tag", "By tag"]])];
     const opts = (pairs, cur) => pairs.map(([v, t]) => `<option value="${esc(v)}"${String(v) === String(cur) ? " selected" : ""}>${esc(t)}</option>`).join("");
     const nowYear = new Date().getFullYear();
     const years = []; for (let y = nowYear + 1; y >= 1970; y--) years.push([y, y]);
@@ -71,6 +100,13 @@
       controls = `<select data-b="season" aria-label="Season">${opts(SEASON_NAMES, B.season)}</select>
         <select data-b="year" aria-label="Year">${opts(years, B.year)}</select>
         <select data-b="sort" aria-label="Sort">${opts([["members", "Most members"], ["score", "Highest score"]], B.sort)}</select>`;
+    } else if (B.mode === "tag") {
+      MALD.tags.ensure(S.kind);
+      const all = MALD.tags.all(S.kind);
+      const cur = all.find(([l]) => l.toLowerCase() === B.tag.toLowerCase());
+      controls = MALD.tags.ready(S.kind)
+        ? `<select data-b="tag" aria-label="Tag">${opts([["", all.length ? "Choose a tag…" : "No tags yet"], ...all.map(([l, n]) => [l, `${l} (${n})`])], cur ? cur[0] : "")}</select>`
+        : `<span class="hint busy">Loading tags…</span>`;
     } else {
       controls = `<select data-b="rank" aria-label="Ranking">${opts(RANK_LABELS[S.kind], B.rank)}</select>`;
     }
@@ -79,11 +115,15 @@
     const listed = new Map((list() || []).map((x) => [x.id, x]));
     const types = [...new Set(items.map((e) => e.mediaType).filter(Boolean))].sort();
     if (B.type && !types.includes(B.type) && items.length) B.type = "";
-    const shown = items.filter((e) => (!B.type || e.mediaType === B.type) && !(B.hideListed && listed.has(e.id)));
+    const tagNames = B.mode === "tag" ? [] : tagOptions(items.map((e) => e.id));
+    if (B.tagF && !tagNames.some((t) => t.toLowerCase() === B.tagF.toLowerCase())) B.tagF = "";
+    const shown = items.filter((e) => (!B.type || e.mediaType === B.type) && !(B.hideListed && listed.has(e.id))
+      && (!B.tagF || MALD.tags.has(S.kind, e.id, B.tagF)));
     const hidden = items.length - shown.length;
     const whose = owner() === "your" ? "your" : `${esc(S.data.user)}'s`;
     const filters = items.length ? `<div class="filters bfilters">
         <select data-b="type" aria-label="Type">${opts([["", "All types"], ...types.map((t) => [t, t])], B.type)}</select>
+        ${tagNames.length ? `<select data-b="tagF" aria-label="Tag">${opts([["", "All tags"], ...tagNames.map((t) => [t, t])], B.tagF)}</select>` : ""}
         <label class="chk"><input type="checkbox" data-b="hideListed"${B.hideListed ? " checked" : ""}> Hide titles on ${whose} list</label>
       </div>` : "";
 
@@ -91,7 +131,8 @@
       const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
       const len = anime ? (e.mediaType === "Movie" ? "" : e.total ? plural(e.total, "ep") : "") : e.totalVol ? plural(e.totalVol, "vol") : e.total ? `${e.total} ch` : "";
       const when = MALD.isUpcoming(e) ? "Upcoming" : MALD.isOngoing(e) ? (anime ? "Airing now" : "Publishing") : "";
-      const meta = [e.rank && B.mode === "ranking" ? `#${e.rank}` : "", e.mediaType, e.year, len, e.mean ? `★ ${e.mean.toFixed(2)}` : ""].filter(Boolean).join(" · ");
+      const votes = B.mode === "tag" ? (MALD.tags.forTitle(S.kind, e.id).find(([l]) => l.toLowerCase() === B.tag.toLowerCase()) || [])[1] : 0;
+      const meta = [e.rank && B.mode === "ranking" ? `#${e.rank}` : "", votes ? `${votes} vote${votes === 1 ? "" : "s"}` : "", e.mediaType, e.year, len, e.mean ? `★ ${e.mean.toFixed(2)}` : ""].filter(Boolean).join(" · ");
       const onList = listed.get(e.id);
       const mine = A.me ? A.myEntry(S.kind, e.id) : null;
       const tags = (onList ? `<span class="tag">On ${whose} list: ${esc(statusText(onList))}</span>` : `<span class="tag new">Not on ${whose} list</span>`)
@@ -107,9 +148,10 @@
     };
 
     let body;
-    if (!params) body = `<p class="hint">${B.q.trim() ? "Type at least 3 characters." : `Search every ${anime ? "anime" : "manga"} on MyAnimeList by name, ${anime ? "browse a season, " : ""}or look at the top lists.`}</p>`;
+    if (!params && B.mode === "tag") body = MALD.tags.ready(S.kind) ? `<p class="hint">Pick a tag to see every ${anime ? "anime" : "manga"} people gave it, most votes first. Tags are added from a title's details.</p>` : "";
+    else if (!params) body = `<p class="hint">${B.q.trim() ? "Type at least 3 characters." : `Search every ${anime ? "anime" : "manga"} on MyAnimeList by name, ${anime ? "browse a season, " : ""}or look at the top lists.`}</p>`;
     else if (r.error && !items.length) body = `<div class="notice warn" role="status"><span class="notice-icon" aria-hidden="true">!</span><div><strong>Couldn't load these results</strong><p>${esc(r.error)}</p></div><button type="button" data-act="bretry">Try again</button></div>`;
-    else if (!items.length) body = r.loading ? `<p class="hint busy">Asking MyAnimeList…</p>` : `<p class="hint">Nothing found.</p>`;
+    else if (!items.length) body = r.loading ? `<p class="hint busy">${B.mode === "tag" ? "Looking up these titles…" : "Asking MyAnimeList…"}</p>` : `<p class="hint">Nothing found.</p>`;
     else {
       body = `<p class="hint">${MALD.fmtNum(shown.length)} title${shown.length === 1 ? "" : "s"}${hidden ? ` · ${MALD.fmtNum(hidden)} hidden by the filters` : ""}</p>
         <div class="rgrid">${shown.map(card).join("")}</div>

@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.7.0 · 2026-11-23
+- Community tags, like Steam's: every title's details show the tags people gave it, most votes first
+- Signed in, add tags to any title (with suggestions from tags already in use), vote for other people's tags, and take your votes back
+- Click a tag to see every title with it (Search → By tag); filter the Library, Search results and Next up by tag
+- Settings → Remove all my tags; the privacy notice explains what's stored
+
 ## 2.6.1 · 2026-11-22
 - Behind the scenes: the page's main script is split into smaller files by area (no visible change)
 

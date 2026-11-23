@@ -3,8 +3,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import worker from "../worker/worker.js";
+import { fakeD1 } from "./fake-d1.mjs";
 const env = { MAL_CLIENT_ID: "cid", MAL_CLIENT_SECRET: "secret" };
 let tokenCalls = [], malCalls = [], expiresIn = 3600, meDown = false, tokenFail = 0;
+let currentMe = { id: 1, name: "LeGilly", picture: "p.jpg" }; // who MAL says is signing in
 globalThis.fetch = async (url, init = {}) => {
   url = String(url);
   if (url.includes("/oauth2/token")) {
@@ -15,16 +17,16 @@ globalThis.fetch = async (url, init = {}) => {
   }
   malCalls.push({ url, method: init.method || "GET", auth: init.headers && init.headers.Authorization, body: init.body && String(init.body) });
   if (url.includes("/users/@me?") && meDown) return new Response("busy", { status: 429 });
-  if (url.includes("/users/@me?")) return Response.json({ id: 1, name: "LeGilly", picture: "p.jpg" });
+  if (url.includes("/users/@me?")) return Response.json(currentMe);
   if (url.includes("/my_list_status") && init.method === "PATCH") return Response.json({ status: "watching", score: 8, num_episodes_watched: 5 });
   if (url.includes("/my_list_status") && init.method === "DELETE") return new Response(null, { status: 200 });
   if (url.includes("/users/@me/animelist")) return Response.json({ data: [{ node: { id: 5 }, list_status: { status: "watching" } }], paging: {} });
   return Response.json({});
 };
 const O = "https://anime.legilly.com", API = "https://api.legilly.com";
-const req = (path, { method = "GET", origin, cookie, body, ct } = {}) => {
+const req = (path, { method = "GET", origin, cookie, body, ct, e = env } = {}) => {
   const h = {}; if (origin) h.Origin = origin; if (cookie) h.Cookie = cookie; if (ct) h["Content-Type"] = ct;
-  return worker.fetch(new Request(API + path, { method, headers: h, body }), env);
+  return worker.fetch(new Request(API + path, { method, headers: h, body }), e);
 };
 const cookies = (res) => res.headers.getSetCookie ? res.headers.getSetCookie() : [res.headers.get("Set-Cookie")];
 const val = (list, name) => (list.find((c) => c && c.startsWith(name + "=")) || "").split(";")[0];
@@ -158,5 +160,91 @@ ok(r.status === 200 && seen.at(-1).includes("/manga/ranking?ranking_type=manhwa"
 r = await req("/browse?type=anime&mode=ranking&rank=evil", { origin: O });
 ok(r.status === 400, "unknown ranking refused");
 globalThis.fetch = f0;
+
+// 9. community tags (a fake D1 database; MAL isn't involved)
+r = await req("/tags?type=anime", { origin: O });
+ok(r.status === 503, "tags answer 503 while no database is attached");
+const tagsDb = fakeD1();
+const te = { ...env, TAGS: tagsDb };
+async function signIn(user) {
+  currentMe = user;
+  const start = await req("/auth/login?return=" + encodeURIComponent(O + "/"));
+  const st = new URL(start.headers.get("Location")).searchParams.get("state");
+  const back = await req(`/auth/callback?code=x&state=${st}`, { cookie: val(cookies(start), "mald_pkce") });
+  return val(cookies(back), "mald_sess");
+}
+const alice = await signIn({ id: 1, name: "LeGilly", picture: "" });
+const bob = await signIn({ id: 2, name: "Friend", picture: "" });
+currentMe = { id: 1, name: "LeGilly", picture: "p.jpg" };
+const vote = (who, id, tag, type = "anime") => req(`/me/tags?type=${type}&id=${id}`, { method: "POST", origin: O, cookie: who, ct: "application/json", body: JSON.stringify({ tag }), e: te });
+const unvote = (who, id, tag) => req(`/me/tags?type=anime&id=${id}&tag=${encodeURIComponent(tag)}`, { method: "DELETE", origin: O, cookie: who, e: te });
+const pub = async (type = "anime") => (await (await req(`/tags?type=${type}`, { origin: O, e: te })).json()).titles;
+
+r = await vote(alice, 5, "  Found   family ");
+let jt = await r.json();
+ok(r.status === 200 && JSON.stringify(jt) === JSON.stringify({ id: 5, tags: [["Found family", 1]], mine: ["Found family"] }), "a vote is saved, spaces tidied, and the title's tags come back");
+r = await vote(bob, 5, "found FAMILY");
+jt = await r.json();
+ok(JSON.stringify(jt.tags) === JSON.stringify([["Found family", 2]]) && jt.mine[0] === "Found family", "capitals don't make a new tag; the first spelling is kept");
+await vote(bob, 5, "Slow burn");
+await vote(alice, 5, "found family");
+let titles = await pub();
+ok(JSON.stringify(titles["5"]) === JSON.stringify([["Found family", 2], ["Slow burn", 1]]), "public tags are ordered by votes; voting twice counts once");
+ok(JSON.stringify(await pub("manga")) === "{}", "anime and manga tags are separate");
+r = await req("/tags?type=anime", { origin: "https://evil.example", e: te });
+ok(r.status === 403, "public tags refused for other sites, like the rest of the relay");
+r = await req("/me/tags?type=anime", { origin: O, cookie: alice, e: te });
+ok(JSON.stringify((await r.json()).mine) === JSON.stringify({ 5: ["Found family"] }), "you can read back your own votes");
+r = await unvote(alice, 5, "FOUND family");
+jt = await r.json();
+ok(JSON.stringify(jt.tags) === JSON.stringify([["Found family", 1], ["Slow burn", 1]]) && jt.mine.length === 0, "you can take back your vote (any capitals)");
+await unvote(alice, 5, "Slow burn");
+ok((await pub())["5"].length === 2, "taking back a vote you never made changes nothing");
+
+for (const [bad, why] of [["a", "too short"], ["x".repeat(25), "too long"], ["<script>", "angle brackets"], ["-dash", "starting with a hyphen"], ["a;DROP TABLE votes", "a semicolon"], [42, "not text"]]) {
+  r = await vote(alice, 6, bad);
+  ok(r.status === 400, `tag refused: ${why}`);
+}
+r = await vote(alice, 6, "Mecha");
+ok(r.status === 200 && (await r.json()).tags[0][0] === "Mecha", "the database still works after odd input");
+r = await vote(alice, 6, "Isekai's best");
+ok(r.status === 200, "apostrophes and other alphabets are fine");
+r = await vote(alice, 6, "日常系");
+ok(r.status === 200, "tags in other languages are fine");
+
+r = await req("/me/tags?type=anime&id=7", { method: "POST", origin: O, e: te, ct: "application/json", body: JSON.stringify({ tag: "Nope" }) });
+ok(r.status === 401, "voting needs a sign-in");
+r = await req("/me/tags?type=anime&id=7", { method: "POST", origin: "https://evil.example", cookie: alice, e: te, ct: "application/json", body: JSON.stringify({ tag: "Nope" }) });
+ok(r.status === 403, "voting from another site refused");
+r = await req("/me/tags?type=anime&id=7", { method: "POST", origin: O, cookie: alice, e: te, ct: "text/plain", body: JSON.stringify({ tag: "Nope" }) });
+ok(r.status === 415, "voting needs JSON (so browsers always check with the relay first)");
+r = await req("/me/tags?type=anime&id=7", { method: "POST", origin: O, cookie: alice, e: te, ct: "application/json", body: JSON.stringify({ tag: "Nope", user_id: 2 }) });
+ok(tagsDb.console("SELECT user_id FROM votes WHERE title = 7")[0].user_id === 1, "who voted comes from the sign-in, never from the request");
+
+for (let i = 0; i < 20; i++) await vote(bob, 8, "Tag " + i);
+r = await vote(bob, 8, "One too many");
+ok(r.status === 400 && (await r.json()).error.includes("20"), "up to 20 tags per person per title");
+for (let i = 0; i < 40; i++) await vote(bob, 100 + i, "Busy " + i);
+r = await vote(bob, 200, "Too fast");
+ok(r.status === 429, "at most 60 new votes per person per hour");
+
+// What the D1 console commands in MAINTAINING.md do
+tagsDb.console("INSERT INTO blocked_words (word) VALUES ('spoiler')");
+r = await vote(alice, 9, "Big SPOILER here");
+ok(r.status === 400, "blocked words can't be used, whatever the capitals");
+r = await vote(alice, 9, "Spoilerfree");
+ok(r.status === 200, "a blocked word only matches whole words");
+tagsDb.console("INSERT INTO blocked_users (user_id, user_name, note, at) VALUES (2, 'Friend', 'test', 0)");
+titles = await pub();
+ok(!titles["5"] && !titles["8"] && titles["6"], "a blocked user's votes stop counting at once (only theirs)");
+r = await vote(bob, 10, "Anything");
+ok(r.status === 403, "a blocked user can't vote");
+r = await unvote(bob, 5, "Slow burn");
+ok(r.status === 200, "a blocked user can still take back votes");
+tagsDb.console("DELETE FROM blocked_users WHERE user_id = 2");
+r = await req("/me/tags/all", { method: "DELETE", origin: O, cookie: bob, e: te });
+jt = await r.json();
+ok(r.status === 200 && jt.removed >= 50 && tagsDb.console("SELECT COUNT(*) AS n FROM votes WHERE user_id = 2")[0].n === 0, "removing all your tags deletes every vote you made");
+ok(tagsDb.console("SELECT COUNT(*) AS n FROM votes WHERE user_id = 1")[0].n > 0, "and nobody else's");
 
 for (const [passed, name] of checks) test(name, () => assert.ok(passed, name));

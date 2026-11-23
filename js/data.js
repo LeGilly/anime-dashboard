@@ -420,6 +420,7 @@ MALD.pruneDetails = function () {
 /* ---------- shared with recs.js ---------- */
 
 MALD.relay = relay;
+MALD.relayDirect = relayNow; // for calls that never reach MAL (tags): no need to wait in its line
 MALD.entryFromApi = entryFromApi;
 MALD.detailsFromNode = detailsFromNode;
 MALD.makeEntry = makeEntry;

@@ -18,10 +18,26 @@ export const fixture = M;
  * Routes the relay and cover images for a page (or a whole browser context).
  * options: signed (start signed in), plus anything else to keep in `state`.
  * state: signed, meFail (status for /me), fail ([status, message] for edits), linksFor (id → related list),
- *        and records: patches [[id, body]], deletes [id], browse [params], calls [{path, ids}].
+ *        tags ({ anime: { id: [[tag, votes], ...] } }: votes from other people), tagsOff (no tag database: 503),
+ *        and records: patches [[id, body]], deletes [id], browse [params], calls [{path, ids}],
+ *        votes [{ type, id, key, label, user }] (every vote, yours are user 1).
  */
 export async function mockRelay(target, options = {}) {
-  const state = { signed: false, meFail: null, fail: null, linksFor: {}, patches: [], deletes: [], browse: [], calls: [], ...options };
+  const state = { signed: false, meFail: null, fail: null, linksFor: {}, patches: [], deletes: [], browse: [], calls: [], tags: {}, tagsOff: false, votes: [], ...options };
+  // Tags work like the relay's: one vote per person per tag per title, the first spelling of a tag is kept.
+  const labels = new Map();
+  let other = 100;
+  for (const [type, titles] of Object.entries(state.tags)) for (const [id, list] of Object.entries(titles)) for (const [label, n] of list) {
+    if (!labels.has(label.toLowerCase())) labels.set(label.toLowerCase(), label);
+    for (let i = 0; i < n; i++) state.votes.push({ type, id: Number(id), key: label.toLowerCase(), user: other++ });
+  }
+  const tally = (type, id) => {
+    const count = new Map();
+    for (const v of state.votes) if (v.type === type && v.id === id) count.set(v.key, (count.get(v.key) || 0) + 1);
+    return [...count.entries()].map(([k, n]) => [labels.get(k), n]).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  };
+  const minePer = (type, id) => state.votes.filter((v) => v.type === type && v.id === id && v.user === 1).map((v) => labels.get(v.key)).sort();
+  const titleAnswer = (type, id) => ({ id, tags: tally(type, id), mine: minePer(type, id) });
   await sharedFiles(target);
   const mine = structuredClone({ anime: M.anime, manga: M.manga });
   const nodes = { anime: new Map(), manga: new Map() };
@@ -48,6 +64,33 @@ export async function mockRelay(target, options = {}) {
       if (path === "/me" && state.meFail) return json(route, state.meFail, { error: "MyAnimeList is busy." }, ACCOUNT);
       if (path === "/me") return json(route, 200, { id: 1, name: "LeGilly", picture: "" }, ACCOUNT);
       if (path === "/me/list") return json(route, 200, { user: "@me", items: mine[q.type] }, ACCOUNT);
+      if (path.startsWith("/me/tags")) {
+        if (state.tagsOff) return json(route, 503, { error: "Tags aren't switched on yet." }, ACCOUNT);
+        if (path === "/me/tags/all") {
+          const before = state.votes.length;
+          state.votes = state.votes.filter((v) => v.user !== 1);
+          return json(route, 200, { removed: before - state.votes.length }, ACCOUNT);
+        }
+        if (req.method() === "GET") {
+          const out = {};
+          for (const v of state.votes) if (v.type === q.type && v.user === 1) (out[v.id] = out[v.id] || []).push(labels.get(v.key));
+          return json(route, 200, { type: q.type, mine: out }, ACCOUNT);
+        }
+        const id = Number(q.id);
+        if (req.method() === "POST") {
+          const label = JSON.parse(req.postData()).tag.trim().replace(/\s+/g, " ");
+          if (state.tagFail) return json(route, state.tagFail[0], { error: state.tagFail[1] }, ACCOUNT);
+          const key = label.toLowerCase();
+          if (!labels.has(key)) labels.set(key, label);
+          if (!state.votes.some((v) => v.type === q.type && v.id === id && v.key === key && v.user === 1)) state.votes.push({ type: q.type, id, key, user: 1 });
+          return json(route, 200, titleAnswer(q.type, id), ACCOUNT);
+        }
+        if (req.method() === "DELETE") {
+          const key = q.tag.toLowerCase();
+          state.votes = state.votes.filter((v) => !(v.type === q.type && v.id === id && v.key === key && v.user === 1));
+          return json(route, 200, titleAnswer(q.type, id), ACCOUNT);
+        }
+      }
       if (path === "/me/entry") {
         if (state.fail) return json(route, state.fail[0], { error: state.fail[1] }, ACCOUNT);
         if (req.method() === "PATCH") { state.patches.push([q.id, JSON.parse(req.postData())]); return json(route, 200, { status: "watching" }, ACCOUNT); }
@@ -58,6 +101,12 @@ export async function mockRelay(target, options = {}) {
       if (q.user === "NoSuchUser") return json(route, 404, { error: "No MyAnimeList user with that name." });
       if (q.user === "Friend") return json(route, 200, { items: q.type === "anime" ? friend : [] });
       return json(route, 200, { items: M[q.type] });
+    }
+    if (path === "/tags") {
+      if (state.tagsOff) return json(route, 503, { error: "Tags aren't switched on yet." });
+      const titles = {};
+      for (const id of new Set(state.votes.filter((v) => v.type === q.type).map((v) => v.id))) titles[id] = tally(q.type, id);
+      return json(route, 200, { type: q.type, titles });
     }
     if (path === "/details") return json(route, 200, { items: ids.map((id) => nodes[q.type].get(id) || { id, missing: true }) });
     if (path === "/links") {

@@ -8,13 +8,14 @@ A cleaner way to browse a MyAnimeList anime or manga list.
 - **Library:** cover grid or compact list, with search, sorting, and filters for status, type, genre, studio or author, and year.
 - **Progress:** what you're watching or reading, with episodes and time left, titles that have gone quiet, and your plan-to-watch queue.
 - **Next up:** what to watch or read next: sequels to series you finished, picks from your plan-to-watch and from MyAnimeList users' recommendations, and upcoming or airing related titles. Each pick says why it was chosen, with filters for genre, length and airing status.
+- **Tags:** community tags on every title, like Steam's: see what people tagged a title, browse every title with a tag, and filter by tag. Signed-in users can add tags and vote for existing ones.
 - **Stats:** totals and time watched, a status breakdown, top genres and studios (or authors), and a history of what you finished by year and month.
 
 ## Signing in (optional)
 
 Sign in with MyAnimeList to see your own list, private entries included, and edit it from here:
 episodes (+1 in one tap), scores, status, rewatching, dates, adding titles from Next up or from a title's
-sequels and prequels, and removing titles.
+sequels and prequels, and removing titles. You can also add tags to any title and vote for other people's tags.
 Once signed in, opening the dashboard goes straight to your Library. You can still browse anyone else's list
 (with "Change list" or a link to it), and see which of their titles are on yours.
 See the [privacy notice](https://anime.legilly.com/privacy.html).

@@ -3,7 +3,7 @@
 (function () {
   const MALD = window.MALD;
   const U = MALD.ui;
-  const { $, A, PAGE, S, addToMine, browseKey, browseParams, doEdit, esc, fetchBrowse, fillDetail, findEntry, keepListPosition, list, openDetail, openRelated, relatedBack, relatedHtml, relatedSaved, removeFromMine, render, resetNextPaging, savePrefs, setStatus, show, syncNet, syncUrl, toast, unlockPage } = U;
+  const { $, A, PAGE, S, addTag, addToMine, bindTags, browseKey, browseTag, browseParams, doEdit, esc, fetchBrowse, fillDetail, findEntry, keepListPosition, list, openDetail, openRelated, relatedBack, relatedHtml, relatedSaved, refreshTags, removeFromMine, render, resetNextPaging, savePrefs, setStatus, show, syncNet, syncUrl, toast, unlockPage, voteTag } = U;
 
   /* ---------- loading ---------- */
 
@@ -13,7 +13,8 @@
     const line = $("acctLine");
     if (A.me) {
       line.hidden = false;
-      line.innerHTML = `Signed in as <strong>${esc(A.me.name)}</strong> · <button type="button" class="link" data-acct="signout">Sign out</button>`;
+      line.innerHTML = `Signed in as <strong>${esc(A.me.name)}</strong> · <button type="button" class="link" data-acct="signout">Sign out</button>`
+        + (MALD.tags.off ? "" : ` · <button type="button" class="link" data-acct="untag">Remove all my tags</button>`);
     } else if (A.available()) {
       line.hidden = false;
       line.innerHTML = `<button type="button" class="link" data-acct="signin">Sign in with MyAnimeList</button> to edit your own list`;
@@ -138,8 +139,8 @@
       const b = ev.target.closest("button[data-kind]");
       if (!b || b.dataset.kind === S.kind) return;
       S.kind = b.dataset.kind;
-      S.lib = Object.assign(S.lib, { status: "all", type: "", genre: "", creator: "", year: "", shown: PAGE });
-      Object.assign(S.next, { genresOff: [], matchAll: false, excludes: [], lengthsOff: [] }); S.openMulti = null; S.msearch = {}; resetNextPaging();
+      S.lib = Object.assign(S.lib, { status: "all", type: "", genre: "", tag: "", creator: "", year: "", shown: PAGE });
+      Object.assign(S.next, { genresOff: [], matchAll: false, excludes: [], lengthsOff: [], tag: "" }); S.openMulti = null; S.msearch = {}; resetNextPaging();
       syncUrl(); render();
     });
     $("tabs").addEventListener("click", (ev) => {
@@ -161,10 +162,23 @@
       const b = ev.target.closest("[data-acct]");
       if (!b) return;
       if (b.dataset.acct === "signin") A.signIn();
-      else {
+      else if (b.dataset.acct === "signout") {
         await A.signOut();
         signedOut();
         toast("Signed out.");
+      }
+      else if (b.dataset.acct === "untag") {
+        b.outerHTML = `<span class="untag-ask">Remove every tag vote you've made? <button type="button" class="link danger" data-acct="untag-yes">Yes, remove them</button>
+          <button type="button" class="link" data-acct="untag-no">Cancel</button></span>`;
+      }
+      else if (b.dataset.acct === "untag-no") updateAccount();
+      else if (b.dataset.acct === "untag-yes") {
+        try {
+          const n = await MALD.tags.removeAll();
+          toast(n ? `Removed your ${MALD.fmtNum(n)} tag vote${n === 1 ? "" : "s"}.` : "You hadn't voted for any tags.");
+        } catch (err) { toast(`Couldn't remove your tags: ${err.message}`, "warn"); }
+        updateAccount();
+        render();
       }
     });
     $("changeBtn").addEventListener("click", () => {
@@ -239,7 +253,7 @@
         render();
         return;
       }
-      const map = { fType: "type", fGenre: "genre", fCreator: "creator", fYear: "year", fSort: "sort" };
+      const map = { fType: "type", fGenre: "genre", fTag: "tag", fCreator: "creator", fYear: "year", fSort: "sort" };
       if (map[ev.target.id]) { S.lib[map[ev.target.id]] = ev.target.value; S.lib.shown = PAGE; render(); }
       else if (ev.target.id === "qSort") { S.queueSort = ev.target.value; render(); }
       else if (ev.target.matches("[data-mval]")) {
@@ -252,11 +266,12 @@
       }
       else if (ev.target.matches("[data-mall]")) { keepListPosition("genresOff", () => { S.next.matchAll = ev.target.checked; resetNextPaging(); render(); }); }
       else if (ev.target.id === "rAiring") { S.next.airing = ev.target.checked; resetNextPaging(); render(); }
+      else if (ev.target.id === "rTag") { S.next.tag = ev.target.value; resetNextPaging(); render(); }
     });
     view.addEventListener("click", (ev) => {
       const t = ev.target.closest("button");
       if (!t) return;
-      if (t.dataset.bmode) { S.browse.mode = t.dataset.bmode; S.browse.type = ""; render(); if (t.dataset.bmode === "search" && $("bq")) $("bq").focus(); }
+      if (t.dataset.bmode) { S.browse.mode = t.dataset.bmode; S.browse.type = ""; S.browse.tagF = ""; render(); if (t.dataset.bmode === "search" && $("bq")) $("bq").focus(); }
       else if (t.dataset.act === "bmore" || t.dataset.act === "bretry") {
         const key = browseKey(), r = S.browse.results.get(key);
         if (r && !r.loading) { fetchBrowse(key, browseParams(), r); render(); }
@@ -264,7 +279,7 @@
       else if (t.dataset.status) { S.lib.status = t.dataset.status; S.lib.shown = PAGE; render(); }
       else if (t.dataset.view) { S.lib.view = t.dataset.view; render(); }
       else if (t.dataset.act === "more") { S.lib.shown += PAGE; render(); }
-      else if (t.dataset.act === "clear") { Object.assign(S.lib, { status: "all", q: "", type: "", genre: "", creator: "", year: "", shown: PAGE }); render(); }
+      else if (t.dataset.act === "clear") { Object.assign(S.lib, { status: "all", q: "", type: "", genre: "", tag: "", creator: "", year: "", shown: PAGE }); render(); }
       else if (t.dataset.gmode) { S.groupMode[t.dataset.field] = t.dataset.gmode; render(); }
       else if (t.classList.contains("msel")) {
         const key = t.closest("[data-multi]").dataset.multi;
@@ -345,6 +360,10 @@
       } else if (b.dataset.add) addToMine(b.dataset.add);
       else if (b.dataset.rel) openRelated(b.dataset.rel);
       else if (b.dataset.act === "relback") relatedBack();
+      else if (b.dataset.tagon || b.dataset.tagoff) voteTag(b.dataset.tagon || b.dataset.tagoff, !!b.dataset.tagon);
+      else if (b.dataset.tagpick) addTag(b.dataset.tagpick);
+      else if (b.dataset.tagbrowse) browseTag(b.dataset.tagbrowse);
+      else if (b.dataset.act === "tagsmore" || b.dataset.act === "tagsless") { S.tagsAll = b.dataset.act === "tagsmore" ? S.detailId : null; refreshTags(); }
       else if (b.dataset.act === "relmore" || b.dataset.act === "relless") {
         const e = findEntry(S.detailId) || (A.me && A.myEntry(S.kind, S.detailId));
         S.relAll = b.dataset.act === "relmore" ? S.detailId : null;
@@ -361,6 +380,7 @@
     dlg.addEventListener("click", (ev) => {
       if (ev.target === dlg || ev.target.closest("[data-act=close]")) dlg.close();
     });
+    bindTags(dlg);
 
     // Hover and focus tooltips for charts.
     const tip = $("tip");
@@ -383,6 +403,7 @@
   }
 
   async function start() {
+    MALD.tags.onChange = () => { refreshTags(); updateAccount(); if (!$("app").hidden) render(); };
     bind();
     MALD.pruneDetails();
     const p = new URLSearchParams(location.search);

@@ -126,11 +126,144 @@
           ${e.titleEn && e.titleEn !== titleOf(e) ? `<p class="sub">${esc(e.titleEn)}</p>` : e.titleEn && e.title !== titleOf(e) ? `<p class="sub">${esc(e.title)}</p>` : ""}
           ${e.genres.length ? `<ul class="tags">${e.genres.map((g) => `<li>${esc(g)}</li>`).join("")}</ul>` : ""}
           ${listSection(e, theirs)}
+          ${tagsSection(e)}
           ${info ? `<h3>About</h3><dl>${info}</dl>` : ""}
           ${relatedSection(e)}
           <p><a class="btn" href="${malUrl(e)}" target="_blank" rel="noopener">Open on MyAnimeList</a></p>
         </div>
       </div>`;
+  }
+
+  /* ---------- community tags in the detail panel ----------
+     Everyone sees a title's tags, most votes first. Signed in, you can vote for tags (new or existing) and take
+     your votes back. Clicking a tag lists every title with it (Search, "By tag"). */
+  const TAGS_SHOWN = 10;
+  function tagsSection(e) {
+    const T = MALD.tags;
+    if (T.off || !MALD.relayReady()) return "";
+    T.ensure(e.kind);
+    return `<section id="dTags" class="d-tags" data-kind="${e.kind}" data-id="${e.id}">${tagsHtml(e)}</section>`;
+  }
+  function tagsHtml(e) {
+    const T = MALD.tags;
+    if (!T.ready(e.kind)) return `<h3>Tags</h3><p class="muted">${T.error[e.kind] ? "Couldn't load tags right now. Try again in a minute." : "Loading tags…"}</p>`;
+    const tags = T.forTitle(e.kind, e.id);
+    const mine = T.mineFor(e.kind, e.id).map((l) => l.toLowerCase());
+    const shown = S.tagsAll === e.id ? tags : tags.slice(0, TAGS_SHOWN);
+    const what = e.kind === "anime" ? "anime" : "manga";
+    const chip = ([label, n]) => {
+      const my = mine.includes(label.toLowerCase());
+      const vote = !A.me ? "" : my
+        ? `<button type="button" class="ctag-vote" data-tagoff="${esc(label)}" title="Take back your vote" aria-label="Take back your vote for ${esc(label)}">✕</button>`
+        : `<button type="button" class="ctag-vote" data-tagon="${esc(label)}" title="Vote for this tag too" aria-label="Vote for ${esc(label)} too">+</button>`;
+      return `<li class="ctag${my ? " mine" : ""}"><button type="button" class="ctag-go" data-tagbrowse="${esc(label)}" title="Every ${what} tagged ${esc(label)}">${esc(label)} <small aria-label="${n} vote${n === 1 ? "" : "s"}">${n}</small></button>${vote}</li>`;
+    };
+    const list = tags.length
+      ? `<ul class="ctags">${shown.map(chip).join("")}</ul>
+         ${tags.length > TAGS_SHOWN ? `<button type="button" class="link" data-act="${S.tagsAll === e.id ? "tagsless" : "tagsmore"}">${S.tagsAll === e.id ? "Show fewer" : `Show all ${tags.length}`}</button>` : ""}`
+      : `<p class="muted">No tags yet.${A.me ? " Add the first one." : ""}</p>`;
+    const form = A.me
+      ? `<form class="tagform" id="tagForm" autocomplete="off">
+          <div class="tagbox">
+            <input type="text" id="tagInput" maxlength="24" placeholder="Add a tag…" aria-label="Add a tag" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="tagSuggest" aria-describedby="tagMsg">
+            <ul id="tagSuggest" class="tagsuggest" role="listbox" aria-label="Tags already in use" hidden></ul>
+          </div>
+          <button type="submit" class="mbtn">Add</button>
+        </form>
+        <p class="muted small" id="tagMsg" aria-live="polite">Your vote counts once; anyone can see the totals, not who voted.</p>`
+      : A.available() ? `<p class="muted small">Sign in to add tags.</p>` : "";
+    return `<h3>Tags</h3>${list}${form}`;
+  }
+  // Redraws the tags of the open title, keeping whatever is being typed.
+  function refreshTags(message) {
+    const box = $("dTags");
+    if (!box || !$("detail").open) return;
+    const e = findEntry(box.dataset.id) || (A.me && A.myEntry(box.dataset.kind, Number(box.dataset.id)));
+    if (!e) return;
+    const input = $("tagInput"), typed = input ? input.value : "", focused = document.activeElement === input;
+    box.innerHTML = tagsHtml(e);
+    const again = $("tagInput");
+    if (again) { again.value = typed; if (focused) again.focus(); }
+    if (message && $("tagMsg")) { $("tagMsg").textContent = message.text; $("tagMsg").className = `small ${message.warn ? "warn-text" : "muted"}`; }
+  }
+  async function sendTag(label, on) {
+    const box = $("dTags");
+    if (!box) return;
+    const kind = box.dataset.kind, id = Number(box.dataset.id);
+    box.querySelectorAll("button, input").forEach((el) => { el.disabled = true; });
+    try {
+      if (on) await MALD.tags.vote(kind, id, label); else await MALD.tags.unvote(kind, id, label);
+      refreshTags({ text: on ? `Voted for "${label}".` : `Took back your vote for "${label}".` });
+      render();
+    } catch (err) {
+      refreshTags({ text: err.message, warn: true });
+      if (err.status === 401) { U.updateAccount(); refreshTags({ text: err.message, warn: true }); }
+    }
+  }
+  const voteTag = (label, on) => sendTag(label, on);
+  function addTag(raw) {
+    const c = MALD.tags.check(raw);
+    if (c.error) { refreshTags({ text: c.error, warn: true }); return; }
+    const input = $("tagInput"); if (input) input.value = "";
+    sendTag(c.label, true);
+  }
+  function browseTag(label) {
+    const box = $("dTags");
+    if (box) S.kind = box.dataset.kind;
+    $("detail").close();
+    Object.assign(S.browse, { mode: "tag", tag: label, type: "", tagF: "" });
+    S.tab = "search";
+    U.syncUrl(); render();
+    window.scrollTo({ top: 0 });
+  }
+  // Suggestions while typing: tags already in use for this kind, starting with what's typed first.
+  function suggestTags() {
+    const input = $("tagInput"), ul = $("tagSuggest"), box = $("dTags");
+    if (!input || !ul || !box) return;
+    const q = input.value.trim().toLowerCase();
+    const mine = MALD.tags.mineFor(box.dataset.kind, box.dataset.id).map((l) => l.toLowerCase());
+    const pool = MALD.tags.all(box.dataset.kind).map(([l]) => l).filter((l) => !mine.includes(l.toLowerCase()));
+    const hits = !q ? [] : pool.filter((l) => l.toLowerCase().startsWith(q)).concat(pool.filter((l) => !l.toLowerCase().startsWith(q) && l.toLowerCase().includes(q))).slice(0, 8);
+    ul.innerHTML = hits.map((l, i) => `<li role="option" id="tagOpt${i}" aria-selected="false"><button type="button" tabindex="-1" data-tagpick="${esc(l)}">${esc(l)}</button></li>`).join("");
+    ul.hidden = !hits.length;
+    input.setAttribute("aria-expanded", String(!!hits.length));
+    input.removeAttribute("aria-activedescendant");
+  }
+  function bindTags(dlg) {
+    dlg.addEventListener("input", (ev) => { if (ev.target.id === "tagInput") suggestTags(); });
+    dlg.addEventListener("submit", (ev) => {
+      if (ev.target.id !== "tagForm") return;
+      ev.preventDefault();
+      const active = dlg.querySelector("#tagSuggest [aria-selected=true] button");
+      addTag(active ? active.dataset.tagpick : $("tagInput").value);
+    });
+    dlg.addEventListener("keydown", (ev) => {
+      if (ev.target.id !== "tagInput") return;
+      const ul = $("tagSuggest");
+      if (!ul || ul.hidden) return;
+      const opts = [...ul.querySelectorAll("li")];
+      let i = opts.findIndex((o) => o.getAttribute("aria-selected") === "true");
+      if (ev.key === "ArrowDown" || ev.key === "ArrowUp") {
+        ev.preventDefault();
+        i = ev.key === "ArrowDown" ? (i + 1) % opts.length : (i <= 0 ? opts.length : i) - 1;
+        opts.forEach((o, j) => o.setAttribute("aria-selected", String(j === i)));
+        ev.target.setAttribute("aria-activedescendant", opts[i].id);
+      } else if (ev.key === "Escape") {
+        ev.preventDefault(); // close the suggestions, not the whole panel
+        ul.hidden = true;
+        ev.target.setAttribute("aria-expanded", "false");
+      }
+    });
+    dlg.addEventListener("cancel", (ev) => {
+      // Escape while suggestions are open only closes them (some browsers send "cancel" before keydown).
+      const ul = $("tagSuggest");
+      if (ul && !ul.hidden && document.activeElement && document.activeElement.id === "tagInput") ev.preventDefault();
+    });
+    dlg.addEventListener("focusout", (ev) => {
+      if (ev.target.id === "tagInput" && !(ev.relatedTarget && ev.relatedTarget.closest("#tagSuggest"))) {
+        setTimeout(() => { const ul = $("tagSuggest"); if (ul) ul.hidden = true; }, 150);
+      }
+    });
   }
 
   /* ---------- related titles in the detail panel ----------
@@ -306,5 +439,5 @@
   }
 
 
-  Object.assign(U, { addToMine, doEdit, fillDetail, findEntry, openDetail, openRelated, relatedBack, relatedHtml, relatedSaved, removeFromMine, unlockPage });
+  Object.assign(U, { addTag, addToMine, bindTags, browseTag, doEdit, fillDetail, findEntry, openDetail, openRelated, refreshTags, relatedBack, relatedHtml, relatedSaved, removeFromMine, unlockPage, voteTag });
 })();

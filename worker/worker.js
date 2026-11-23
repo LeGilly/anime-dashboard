@@ -5,14 +5,17 @@
 //  - MAL doesn't allow requests straight from a web page (no CORS); this relay adds the headers.
 //  - Signing in: the relay talks to MAL and keeps the sign-in in an encrypted, HttpOnly cookie
 //    on api.legilly.com. No page code can read it, not even the dashboard's.
-// Nothing is stored here: no lists, no accounts. The cookie lives only in the visitor's browser.
+// Lists and accounts aren't stored here: the cookie lives only in the visitor's browser.
+// The one thing stored is community tags, in a Cloudflare D1 database (see "tags" below).
 //
 // Secrets (Worker settings on Cloudflare): MAL_CLIENT_ID, MAL_CLIENT_SECRET.
+// Binding (Worker settings on Cloudflare): TAGS, the D1 database. Without it, tags are switched off (503).
 //
 // Public (no sign-in):
 //   GET /list?user=NAME&type=anime|manga      -> { user, type, items: [ {node, list_status}, ... ] }
 //   GET /details?type=anime|manga&ids=1,2,3   -> { type, items: [ node, ... ] }                    (max 25 ids)
 //   GET /links?type=anime|manga&ids=1,2,3     -> { type, items: [ { id, recs, related }, ... ] }   (max 25 ids)
+//   GET /tags?type=anime|manga                -> { type, titles: { "<id>": [ [tag, votes], ... ] } } (every tagged title)
 // Signing in (only from the dashboard's own address):
 //   GET  /auth/login?return=URL   -> sends the visitor to MAL to approve access
 //   GET  /auth/callback           -> MAL sends them back here; sets the cookie, returns them to the dashboard
@@ -22,6 +25,11 @@
 //   GET    /me/list?type=anime|manga    -> same as /list, including private entries
 //   PATCH  /me/entry?type=...&id=N      -> body: JSON of list fields to change; returns MAL's list status
 //   DELETE /me/entry?type=...&id=N      -> removes the title from your list
+//   GET    /me/tags?type=...            -> { type, mine: { "<id>": [tag, ...] } }  (the tags you voted for)
+//   POST   /me/tags?type=...&id=N       -> body: JSON { tag }; adds your vote. Returns { id, tags, mine } for that title
+//   DELETE /me/tags?type=...&id=N&tag=T -> removes your vote; same answer
+//   DELETE /me/tags/all                 -> removes every vote you ever made -> { removed }
+// Moderation isn't done here: only in the Cloudflare dashboard's D1 console (see MAINTAINING.md).
 
 // The only page allowed to use this relay: the dashboard. Every request must come from it (Origin header),
 // except the two sign-in steps the browser navigates to (/auth/login, /auth/callback).
@@ -94,6 +102,7 @@ export default {
           const kept = { ...session.data, m: me };
           return json(me, 200, { ...h, "Set-Cookie": cookie("mald_sess", await seal(env, kept), SESSION_DAYS * 86400, "Strict") });
         }
+        if (url.pathname.startsWith("/me/tags")) return await myTags(request, env, url, session, h);
         const type = url.searchParams.get("type");
         if (type !== "anime" && type !== "manga") return json({ error: "type must be anime or manga." }, 400, h);
         if (url.pathname === "/me/list" && request.method === "GET") {
@@ -129,6 +138,10 @@ export default {
         const data = await mal(env, target.url);
         const items = (data.data || []).map((d) => (d.ranking ? { ...d.node, rank: d.ranking.rank } : d.node));
         return json({ type, items, more: !!(data.paging && data.paging.next) }, 200, cors);
+      }
+      if (url.pathname === "/tags") {
+        if (!env.TAGS) return json({ error: NO_TAGS }, 503, cors);
+        return json({ type, titles: await allTags(env, type) }, 200, { ...cors, "Cache-Control": "no-store" });
       }
       if (url.pathname === "/list") {
         const user = url.searchParams.get("user") || "";
@@ -245,6 +258,121 @@ function checkChanges(type, changes) {
   }
   if (![...body.keys()].length) return { error: "Nothing to change." };
   return { body };
+}
+
+/* ---------- tags ----------
+   Community tags, like Steam's: each signed-in person votes for the tags they think fit a title, and a title
+   shows its tags ordered by votes. Stored in D1 (SQLite). Tables (created here on first use):
+     tags          (key, label, at)                            one row per tag; key = lower case, label = as first typed
+     votes         (type, title, tag, user_id, user_name, at)  one row per person per tag per title
+     blocked_users (user_id, user_name, note, at)              can't vote; their votes stop counting
+     blocked_words (word)                                      new tags can't contain these words
+   User ids and names come from MAL through the encrypted cookie, never from the request. */
+
+const TAG_MIN_VOTES = 1;      // votes a tag needs before it shows (raise it if the site gets busier)
+const TAG_MAX_PER_TITLE = 20; // tags one person can give one title
+const TAG_PER_HOUR = 60;      // new votes one person can add per hour
+const NO_TAGS = "Tags aren't switched on yet.";
+const SCHEMA = [
+  "CREATE TABLE IF NOT EXISTS tags (key TEXT PRIMARY KEY, label TEXT NOT NULL, at INTEGER NOT NULL)",
+  "CREATE TABLE IF NOT EXISTS votes (type TEXT NOT NULL, title INTEGER NOT NULL, tag TEXT NOT NULL, user_id INTEGER NOT NULL, user_name TEXT NOT NULL, at INTEGER NOT NULL, PRIMARY KEY (type, title, tag, user_id))",
+  "CREATE INDEX IF NOT EXISTS votes_user ON votes (user_id, at)",
+  "CREATE TABLE IF NOT EXISTS blocked_users (user_id INTEGER PRIMARY KEY, user_name TEXT, note TEXT, at INTEGER)",
+  "CREATE TABLE IF NOT EXISTS blocked_words (word TEXT PRIMARY KEY)",
+];
+const schemaReady = new WeakMap(); // once per database while this copy of the relay runs
+function db(env) {
+  const d = env.TAGS;
+  if (!schemaReady.has(d)) schemaReady.set(d, d.batch(SCHEMA.map((q) => d.prepare(q))).catch((err) => { schemaReady.delete(d); throw err; }));
+  return schemaReady.get(d).then(() => d);
+}
+
+// Letters (any language), numbers, spaces, hyphens and apostrophes; 2 to 24 characters; starts and ends with a letter or number.
+function cleanTag(raw) {
+  if (typeof raw !== "string") return { error: "Type a tag." };
+  const label = raw.normalize("NFC").replace(/[\u2018\u2019]/g, "'").replace(/\s+/g, " ").trim();
+  if (label.length < 2 || label.length > 24) return { error: "Tags are 2 to 24 characters." };
+  if (!/^[\p{L}\p{N}](?:[\p{L}\p{N}' -]*[\p{L}\p{N}])?$/u.test(label)) return { error: "Tags can only use letters, numbers, spaces, hyphens and apostrophes." };
+  return { label, key: label.toLowerCase() };
+}
+
+const VISIBLE = `user_id NOT IN (SELECT user_id FROM blocked_users)`;
+async function allTags(env, type) {
+  const d = await db(env);
+  const { results } = await d.prepare(
+    `SELECT v.title, t.label, COUNT(*) AS n FROM votes v JOIN tags t ON t.key = v.tag
+     WHERE v.type = ? AND v.${VISIBLE} GROUP BY v.title, v.tag HAVING n >= ? ORDER BY v.title, n DESC, t.label`
+  ).bind(type, TAG_MIN_VOTES).all();
+  const titles = {};
+  for (const r of results) (titles[r.title] = titles[r.title] || []).push([r.label, r.n]);
+  return titles;
+}
+async function titleTags(d, type, id, userId) {
+  const [all, mine] = await d.batch([
+    d.prepare(`SELECT t.label, COUNT(*) AS n FROM votes v JOIN tags t ON t.key = v.tag
+               WHERE v.type = ? AND v.title = ? AND v.${VISIBLE} GROUP BY v.tag HAVING n >= ? ORDER BY n DESC, t.label`).bind(type, id, TAG_MIN_VOTES),
+    d.prepare(`SELECT t.label FROM votes v JOIN tags t ON t.key = v.tag WHERE v.type = ? AND v.title = ? AND v.user_id = ? ORDER BY t.label`).bind(type, id, userId),
+  ]);
+  return { id, tags: all.results.map((r) => [r.label, r.n]), mine: mine.results.map((r) => r.label) };
+}
+
+async function myTags(request, env, url, session, h) {
+  if (!env.TAGS) return json({ error: NO_TAGS }, 503, h);
+  // Who you are: from the cookie, or asked from MAL once and saved into it.
+  let me = session.me;
+  if (!me) {
+    me = await fetchMe(env, session.access);
+    h = { ...h, "Set-Cookie": cookie("mald_sess", await seal(env, { ...session.data, m: me }), SESSION_DAYS * 86400, "Strict") };
+  }
+  const d = await db(env);
+  if (url.pathname === "/me/tags/all" && request.method === "DELETE") {
+    const r = await d.prepare("DELETE FROM votes WHERE user_id = ?").bind(me.id).run();
+    return json({ removed: r.meta.changes }, 200, h);
+  }
+  if (url.pathname !== "/me/tags") return json({ error: "Unknown endpoint." }, 404, h);
+  const type = url.searchParams.get("type");
+  if (type !== "anime" && type !== "manga") return json({ error: "type must be anime or manga." }, 400, h);
+  if (request.method === "GET") {
+    const { results } = await d.prepare(`SELECT v.title, t.label FROM votes v JOIN tags t ON t.key = v.tag WHERE v.type = ? AND v.user_id = ? ORDER BY t.label`).bind(type, me.id).all();
+    const mine = {};
+    for (const r of results) (mine[r.title] = mine[r.title] || []).push(r.label);
+    return json({ type, mine }, 200, h);
+  }
+  const idText = url.searchParams.get("id") || "";
+  if (!/^\d{1,9}$/.test(idText)) return json({ error: "id must be a number." }, 400, h);
+  const id = Number(idText);
+  if (request.method === "DELETE") {
+    const tag = cleanTag(url.searchParams.get("tag"));
+    if (tag.error) return json({ error: tag.error }, 400, h);
+    await d.prepare("DELETE FROM votes WHERE type = ? AND title = ? AND tag = ? AND user_id = ?").bind(type, id, tag.key, me.id).run();
+    return json(await titleTags(d, type, id, me.id), 200, h);
+  }
+  if (request.method === "POST") {
+    if (!(request.headers.get("Content-Type") || "").includes("application/json")) return json({ error: "Send JSON." }, 415, h);
+    const body = await request.json().catch(() => null);
+    const tag = cleanTag(body && body.tag);
+    if (tag.error) return json({ error: tag.error }, 400, h);
+    const now = Date.now();
+    const [blocked, words, onTitle, lastHour, known] = await d.batch([
+      d.prepare("SELECT 1 FROM blocked_users WHERE user_id = ?").bind(me.id),
+      d.prepare("SELECT word FROM blocked_words"),
+      d.prepare("SELECT COUNT(*) AS n FROM votes WHERE type = ? AND title = ? AND user_id = ?").bind(type, id, me.id),
+      d.prepare("SELECT COUNT(*) AS n FROM votes WHERE user_id = ? AND at > ?").bind(me.id, now - 3600000),
+      d.prepare("SELECT 1 FROM votes WHERE type = ? AND title = ? AND tag = ? AND user_id = ?").bind(type, id, tag.key, me.id),
+    ]);
+    if (blocked.results.length) return json({ error: "Your account can't add tags." }, 403, h);
+    if (known.results.length) return json(await titleTags(d, type, id, me.id), 200, h); // already voted: nothing to do
+    const spaced = ` ${tag.key.replace(/[' -]+/g, " ")} `;
+    if (words.results.some((w) => spaced.includes(` ${String(w.word).toLowerCase().trim()} `))) return json({ error: "That tag isn't allowed." }, 400, h);
+    if (onTitle.results[0].n >= TAG_MAX_PER_TITLE) return json({ error: `You can give a title up to ${TAG_MAX_PER_TITLE} tags.` }, 400, h);
+    if (lastHour.results[0].n >= TAG_PER_HOUR) return json({ error: "That's a lot of tags in an hour. Try again later." }, 429, h);
+    await d.batch([
+      d.prepare("INSERT INTO tags (key, label, at) VALUES (?, ?, ?) ON CONFLICT (key) DO NOTHING").bind(tag.key, tag.label, now),
+      d.prepare("INSERT INTO votes (type, title, tag, user_id, user_name, at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING").bind(type, id, tag.key, me.id, me.name, now),
+    ]);
+    return json(await titleTags(d, type, id, me.id), 200, h);
+  }
+  return json({ error: "Unknown endpoint." }, 404, h);
 }
 
 /* ---------- signing in ---------- */

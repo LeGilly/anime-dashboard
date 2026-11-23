@@ -238,6 +238,10 @@
       { source: N.source, genres: ticked(allGenres, N.genresOff), matchAll: N.matchAll, excludes: N.excludes,
         lengths: ticked(allLengths, N.lengthsOff), airing: N.airing, hideAdult: S.prefs.blur }, titleOf);
     S.recPool = res.pool;
+    // Community tag filter: only suggestions with the chosen tag.
+    const tagNames = U.tagOptions([...res.pool.keys()]);
+    if (N.tag && !tagNames.some((t) => t.toLowerCase() === N.tag.toLowerCase())) N.tag = "";
+    if (N.tag) for (const k of ["cont", "recommended", "comingUp"]) res[k] = res[k].filter((x) => MALD.tags.has(S.kind, x.e.id, N.tag));
 
     const lengthOpts = anime
       ? [["", "Any length"], ["movie", "Movies"], ["short", "Short (up to 13 eps)"], ["medium", "Medium (14 to 26 eps)"], ["long", "Long (27+ eps)"]]
@@ -320,6 +324,7 @@
         ${multi("lengthsOff", "Length", lengthOpts, (v) => !N.lengthsOff.includes(v),
           !lOn ? "Any length" : !lOn.length ? "No length" : lengthOpts.filter(([v]) => lOn.includes(v)).map(([, t]) => t.replace(/ \(.*\)/, "")).join(", "), !!lOn)}
         <label class="check"><input type="checkbox" id="rAiring"${N.airing ? " checked" : ""}> Include ${anime ? "airing" : "ongoing"}</label>
+        ${tagNames.length ? `<select id="rTag" aria-label="Tag">${options(tagNames, N.tag, "Any tag")}</select>` : ""}
       </div>
       ${res.basis === "empty" ? `<p class="basis">There's nothing ${anime ? "watched" : "read"}, ${anime ? "watching" : "reading"} or dropped on this list yet, so these picks only use your ${plan.toLowerCase()} and MyAnimeList scores. They'll get more personal as your list grows.</p>`
         : `<p class="basis">${esc(res.basis)}</p>`}

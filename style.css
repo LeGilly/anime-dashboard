@@ -463,3 +463,28 @@ footer a { color: inherit; }
 .bsearch input { flex: 1; min-width: 0; }
 .bfilters { margin-top: -4px; }
 .bfilters .chk { display: flex; align-items: center; gap: 8px; font-size: 0.9rem; }
+
+/* Community tags in the detail panel: a chip per tag (click to see every title with it), with a small
+   vote button when signed in. Your own votes are outlined. */
+.d-tags .muted { color: var(--muted); font-size: 0.85rem; margin: 0; }
+.d-tags .small { font-size: 0.8rem; margin: 6px 0 0; }
+.d-tags .warn-text { color: var(--bad); font-size: 0.8rem; margin: 6px 0 0; }
+.ctags { list-style: none; display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 6px; padding: 0; }
+.ctag { display: inline-flex; align-items: stretch; border-radius: 999px; background: var(--tag); border: 1px solid transparent; overflow: hidden; }
+.ctag.mine { border-color: var(--accent); }
+.ctag button { background: transparent; border: 0; color: var(--accent); font-size: 0.8rem; font-weight: 600; border-radius: 0; }
+.ctag-go { padding: 3px 6px 3px 10px; }
+.ctag-go small { color: var(--muted); font-weight: 500; margin-left: 2px; }
+.ctag-go:only-child { padding-right: 10px; }
+.ctag-vote { padding: 3px 9px 3px 6px; border-left: 1px solid var(--line) !important; }
+.ctag button:hover { background: var(--card); }
+.tagform { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
+.tagbox { position: relative; flex: 1; max-width: 260px; }
+.tagbox input { width: 100%; font-size: 0.9rem; padding: 6px 10px; }
+.tagsuggest {
+  position: absolute; left: 0; right: 0; top: calc(100% + 4px); z-index: 5; list-style: none; margin: 0; padding: 4px;
+  background: var(--card); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 8px 24px rgba(0, 0, 0, .15);
+}
+.tagsuggest button { display: block; width: 100%; text-align: left; background: transparent; border: 0; color: var(--ink); padding: 6px 8px; border-radius: 6px; font-size: 0.85rem; font-weight: 500; }
+.tagsuggest button:hover, .tagsuggest [aria-selected="true"] button { background: var(--tag); color: var(--accent); }
+.untag-ask { display: inline-flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; }

@@ -21,9 +21,9 @@
   // refreshing at the same moment could sign you out.
   let queue = Promise.resolve();
   function call(method, path, params, body) {
-    // Through the shared line for MyAnimeList, ahead of any background checks. Checking who you are doesn't reach MAL.
+    // Through the shared line for MyAnimeList, ahead of any background checks. Checking who you are, and tags, never reach MAL.
     const what = (method === "GET" ? "" : method.toLowerCase() + " ") + path.slice(1) + (params && params.type ? `:${params.type}` : "");
-    const run = () => MALD.net.run(() => send(method, path, params, body), { cost: path === "/me" ? 0 : 1, priority: 0, what });
+    const run = () => MALD.net.run(() => send(method, path, params, body), { cost: path === "/me" || path.startsWith("/me/tags") ? 0 : 1, priority: 0, what });
     const p = queue.then(run, run);
     queue = p.catch(() => {});
     return p;
@@ -56,6 +56,8 @@
     if (!res.ok) throw Object.assign(new Error((data && data.error) || `The relay answered with error ${res.status}.`), { status: res.status, mal: data && data.mal });
     return data;
   }
+
+  A.request = call; // for other account calls (tags)
 
   /* ---------- signing in and out ---------- */
 
