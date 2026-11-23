@@ -1,6 +1,6 @@
 // Start page, addresses, tabs, the privacy notice and phone layout.
 import { test, expect } from "@playwright/test";
-import { mockRelay, watchErrors } from "./mock-relay.mjs";
+import { mockRelay, watchErrors, fixture } from "./mock-relay.mjs";
 
 test("the plain address opens the start page when not signed in", async ({ page }) => {
   await mockRelay(page);
@@ -112,4 +112,33 @@ test("every ?v= matches the version in the footer and the changelog", async () =
     for (const m of html.matchAll(/(?:src|href)="((?!https?:|#|data:)[^"]+\.(?:js|css)[^"]*)"/g)) expect(m[1], page).toContain("?v=");
   }
   expect(read("index.html")).toContain(`v${latest}</span>`);
+});
+
+test("18+ blur: anime go by their age rating, manga by MAL's flag; the rating shows in the details", async ({ page }) => {
+  await mockRelay(page);
+  await page.goto("/?user=LeGilly");
+  await expect(page.locator(".tile").first()).toBeVisible();
+  const adult = await page.evaluate(() => {
+    const e = (o) => MALD.makeEntry(Object.assign({ genres: [] }, o));
+    return {
+      grayButG: MALD.isAdult(e({ kind: "anime", nsfw: "gray", rating: "g" })),
+      grayNoRating: MALD.isAdult(e({ kind: "anime", nsfw: "gray" })),
+      rPlus: MALD.isAdult(e({ kind: "anime", nsfw: "white", rating: "r+" })),
+      rx: MALD.isAdult(e({ kind: "anime", nsfw: "gray", rating: "rx" })),
+      r: MALD.isAdult(e({ kind: "anime", nsfw: "white", rating: "r" })),
+      black: MALD.isAdult(e({ kind: "anime", nsfw: "black", rating: "pg_13" })),
+      hentaiGenre: MALD.isAdult(e({ kind: "anime", rating: "pg", genres: ["Hentai"] })),
+      mangaGray: MALD.isAdult(e({ kind: "manga", nsfw: "gray" })),
+      mangaWhite: MALD.isAdult(e({ kind: "manga", nsfw: "white" })),
+    };
+  });
+  expect(adult).toEqual({ grayButG: false, grayNoRating: true, rPlus: true, rx: true, r: false, black: true, hentaiGenre: true, mangaGray: true, mangaWhite: false });
+  // In the details: a G-rated show flagged "gray" isn't blurred, and its age rating is listed.
+  const id = fixture.anime[0].node.id;
+  await page.evaluate((id) => { const e = MALD.ui.findEntry(id); e.nsfw = "gray"; e.rating = "g"; MALD.ui.openDetail(id); }, id);
+  await expect(page.locator("#detail dl").last()).toContainText("Age ratingG · All ages");
+  await expect(page.locator("#detail .d-cover")).not.toHaveClass(/nsfw/);
+  await page.keyboard.press("Escape");
+  await page.evaluate((id) => { MALD.ui.findEntry(id).rating = "rx"; MALD.ui.openDetail(id); }, id);
+  await expect(page.locator("#detail .d-cover")).toHaveClass(/nsfw/);
 });

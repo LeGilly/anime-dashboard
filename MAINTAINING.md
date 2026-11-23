@@ -183,6 +183,9 @@ DELETE FROM blocked_words WHERE word = 'badword';
 ## Settled behaviour (decided with the owner)
 
 - Tabs: Search, Library, Progress, Next up, Stats. A loaded list (or a fresh sign-in) opens on Library.
+- "Blur 18+ covers" (`MALD.isAdult`): anime go by MAL's age rating (R+ and Rx blurred), because MAL's "gray"
+  flag also covers all-ages shows (e.g. Chiikawa). Manga have no rating in MAL's API, so they use the flag
+  (anything not "white"). Hentai/Erotica genres and the "black" flag are always blurred.
 - The plain address opens the start page, or your own Library when you're signed in. `?user=` (plus optional
   `tab=`, `kind=`) opens that list, someone else's included while signed in. "Change list" clears the address
   and shows the start page without reloading, so a signed-in user can load another list from there.

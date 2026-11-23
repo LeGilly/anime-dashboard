@@ -21,6 +21,12 @@ const TYPE_LABELS = {
   light_novel: "Light Novel", one_shot: "One-shot", doujinshi: "Doujinshi", manhwa: "Manhwa",
   manhua: "Manhua", oel: "OEL",
 };
+// MAL's age ratings for anime.
+MALD.RATING_LABELS = {
+  g: "G · All ages", pg: "PG · Children", pg_13: "PG-13 · Teens 13 or older", r: "R · 17+ (violence and profanity)",
+  "r+": "R+ · Mild nudity", rx: "Rx · Hentai",
+};
+
 MALD.AIR_LABELS = {
   finished_airing: "Finished airing", currently_airing: "Airing now", not_yet_aired: "Not yet aired",
   finished: "Finished", currently_publishing: "Publishing", not_yet_published: "Not yet published",
@@ -64,6 +70,7 @@ function detailsFromNode(n, kind) {
     totalVol: kind === "manga" ? n.num_volumes || 0 : 0,
     duration: n.average_episode_duration || 0, // seconds per episode
     nsfw: n.nsfw || "white",
+    rating: n.rating || "", // anime age rating: g, pg, pg_13, r, r+, rx (MAL has none for manga)
     members: n.num_list_users || 0,
   };
 }
@@ -72,7 +79,7 @@ function makeEntry(base) {
   const e = Object.assign({
     id: 0, kind: "anime", title: "", titleEn: "", image: "", imageLarge: "", mediaType: "",
     genres: [], creators: [], year: null, season: "", mean: null, airStatus: "", airStart: "",
-    total: 0, totalVol: 0, duration: 0, nsfw: "white", members: 0,
+    total: 0, totalVol: 0, duration: 0, nsfw: "white", rating: "", members: 0,
     status: "planned", score: 0, progress: 0, progressVol: 0, repeating: false, timesRepeated: 0,
     myStart: "", myFinish: "", updatedAt: "", enriched: false,
   }, base);

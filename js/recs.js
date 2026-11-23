@@ -50,7 +50,11 @@
   const MAX_FAVORITES = 25;  // titles whose recommendations count
   const MAX_REC_DETAILS = 60;  // recommended titles outside your list whose details are looked up
 
-  MALD.isAdult = (e) => (e.nsfw && e.nsfw !== "white") || e.genres.some((g) => ADULT.includes(g));
+  // 18+: Hentai or Erotica, or MAL's "black" flag. For anime, the age rating decides (R+ and Rx), because MAL's
+  // "gray" flag also covers many all-ages shows. Without a rating (manga, or details saved before ratings were
+  // fetched), anything not flagged safe ("white") counts, as before.
+  MALD.isAdult = (e) => e.genres.some((g) => ADULT.includes(g)) || e.nsfw === "black"
+    || (e.rating ? e.rating === "r+" || e.rating === "rx" : !!e.nsfw && e.nsfw !== "white");
   MALD.isUpcoming = (e) => UPCOMING.includes(e.airStatus);
   MALD.isOngoing = (e) => ONGOING.includes(e.airStatus);
 

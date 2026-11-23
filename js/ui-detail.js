@@ -107,6 +107,7 @@
     const info = dl([
       ["MAL score", e.mean ? e.mean.toFixed(2) : ""],
       ["Type", esc(e.mediaType)],
+      ["Age rating", esc(MALD.RATING_LABELS[e.rating] || "")],
       ["Status", esc(MALD.AIR_LABELS[e.airStatus] || "")],
       ["Season", esc(e.season || (e.year || ""))],
       [anime ? "Episode length" : "", anime && e.duration ? `${Math.round(e.duration / 60)} min` : ""],

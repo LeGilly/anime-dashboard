@@ -44,7 +44,7 @@
   const titleOf = (e) => (S.prefs.english && e.titleEn ? e.titleEn : e.title);
   const unitName = (n) => (S.kind === "manga" ? (n === 1 ? "chapter" : "chapters") : n === 1 ? "episode" : "episodes");
   const malUrl = (e) => `https://myanimelist.net/${e.kind}/${e.id}`;
-  // MAL marks hentai as "gray" (not only "black"), so blur anything not marked safe, plus Hentai or Erotica genres.
+  // Which covers count as 18+: see MALD.isAdult in recs.js.
   const hidden18 = (e) => S.prefs.blur && MALD.isAdult(e);
   const A = MALD.account;
   // Editing only on your own list, while signed in.

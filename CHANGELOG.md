@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.8.0 · 2026-11-23
+- Age rating (G, PG, PG-13, R, R+, Rx) in an anime's details
+- "Blur 18+ covers" now goes by the age rating for anime (R+ and Rx), so all-ages shows MyAnimeList flags as "gray" (like Chiikawa) aren't blurred any more. Manga work as before
+
 ## 2.7.0 · 2026-11-23
 - Community tags, like Steam's: every title's details show the tags people gave it, most votes first
 - Signed in, add tags to any title (with suggestions from tags already in use), vote for other people's tags, and take your votes back

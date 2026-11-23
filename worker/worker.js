@@ -48,7 +48,7 @@ const LIST_FIELDS = {
   manga: "list_status{status,score,num_chapters_read,num_volumes_read,is_rereading,num_times_reread,start_date,finish_date,updated_at}",
 };
 const FIELDS = {
-  anime: COMMON + ",num_episodes,start_season,average_episode_duration,studios",
+  anime: COMMON + ",num_episodes,start_season,average_episode_duration,studios,rating", // rating: age rating (anime only)
   manga: COMMON + ",num_volumes,num_chapters,authors{first_name,last_name}",
 };
 // List fields a signed-in visitor may change, and what MAL expects.
